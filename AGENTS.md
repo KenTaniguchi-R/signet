@@ -108,11 +108,14 @@ ai@7                 # ESM-only, provider spec v4
 | RBAC returns `[]` | nextjs-auth0 v4 filters custom claims out of `session.user` by default |
 | First query after idle hangs for seconds | Neon free-tier compute scaled to zero and is cold-starting. Warm it before demoing |
 | Meter event `400` | `payload` values must be **strings**, and positive integers |
-| Meter event `400 duplicate_meter_event` | Hard error, not a silent no-op. Catch that specific code on retry paths |
+| Meter event `400 duplicate_meter_event` | Hard error, not a silent no-op. ⚠️ **The error arrives with `code: undefined`** — a `code === 'duplicate_meter_event'` check never fires and the run dies on the first replay. Match the message `/event already exists with identifier/` instead. Verified 2026-07-30 |
 | Meter event `409` | Concurrent events on the same customer+meter. **Emit sequentially — never `Promise.all`.** All 12 line items share one customer and one meter |
 | Issuing card won't activate | Cardholder missing `individual.card_issuing.user_terms_acceptance.date` + `.ip` and first/last name → `requirements.past_due`. Card `status` also defaults to `inactive` |
+| `cardholder_phone_number_required` on `cards.create` | `cardholders.create` accepts a **missing** `phone_number`, but `cards.create` then refuses that cardholder (Stripe needs it for 3D Secure). The error names the cardholder, so it reads like a cardholder bug one call too late. Always set `phone_number` at creation, and **backfill it on any cardholder you reuse from `cardholders.list`** |
+| `cardholders.create` → `parameter_missing: billing` | `billing.address` (line1/city/state/postal_code/country) is required, not optional |
 | `parameter_missing: The v2 financial account id must be specified` | `issuing.cards.create` now **requires `financial_account_v2`**. Use `STRIPE_FINANCIAL_ACCOUNT_ID`. The old Treasury param was `financial_account` (singular) — not the same thing. build-notes §5 trap 3 |
-| `You cannot create a new card for FinancialAccount … status is pending` | The `card_issuing` capability isn't active. Check `settings.card_issuing.tos_acceptance.date`, `details_submitted`, and `capabilities.card_issuing` on `/v1/accounts/{id}` — **not** the FinancialAccount. Fixed only by finishing the Dashboard Issuing form; it does not resolve by waiting. build-notes §5 trap 3b |
+| `You cannot create a new card for FinancialAccount … status is pending` | **Verified dead end on this account — do not re-investigate.** USD is not enabled for Financial Accounts here (`POST /v2/money_management/financial_addresses` → `unsupported_currency: usd`), so the FA can never open and no card can be created, on any API version. Needs Stripe-side enablement. Use the PaymentIntents fallback. build-notes §5 trap 3b has the full probe table |
+| Tempted to check `details_submitted` / `capabilities` / `tos_acceptance` on the account | Those are **normal to be empty in a sandbox** and are not the Issuing gate. Cost ~20 min on 2026-07-30. The only meaningful probe is the financial-addresses call above |
 
 Use Neon's **pooled** connection string for the app (serverless-friendly); the direct one is for migrations.
 

@@ -1,26 +1,77 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/**
+ * Signet design tokens.
+ *
+ * Three colour families, three jobs, deliberately not interchangeable:
+ *   accent  structure and interaction. Appears at most a few times per screen.
+ *   status  line-item state. settled / awaiting / declined.
+ *   seal    role identity. ONLY inside a seal mark or a co-approver dot.
+ *
+ * Light-locked on purpose. The demo runs on a projector in a lit room and cuts
+ * to the Stripe dashboard, which is light. A dark ground loses contrast in both
+ * places, so there is no dark variant to drift out of sync.
+ */
+@theme {
+  --color-paper: #f2f3f5;
+  --color-surface: #fbfbfc;
+  --color-surface-2: #eaecf0;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-ink: #14161c;
+  --color-ink-muted: #5a6072;
+  --color-ink-faint: #878da0;
+
+  --color-rule: #d9dce3;
+  --color-rule-soft: #e6e8ed;
+
+  --color-accent: #2338c7;
+  --color-accent-tint: #e7eafb;
+
+  --color-ok: #3f7a4e;
+  --color-ok-tint: #e6efe8;
+  --color-halt: #b0742a;
+  --color-halt-tint: #f7eee0;
+  --color-stop: #a8392f;
+  --color-stop-tint: #f7e7e5;
+
+  --color-seal-finance: #0f5f73;
+  --color-seal-legal: #5b3e8c;
+  --color-seal-ops: #8a5a1f;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-serif: var(--font-source-serif);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Money and identifiers line up in columns everywhere they appear. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The one motivated animation in the build: the plan lands item by item, which
+ * narrates the agent's work. Degrades to a single render when streaming is cut.
+ */
+@keyframes signet-settle {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+.row-settle {
+  animation: signet-settle 0.34s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-settle {
+    animation: none;
+  }
 }
