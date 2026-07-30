@@ -15,7 +15,8 @@
 - All page components stay server components. Only `BriefForm` carries `'use client'`.
 - No `any` in auth or policy paths.
 - Existing tests live in `src/lib` and run under Node's built-in test runner (`npm test` → `node --test "src/**/*.test.ts"`). There is no component or route test harness, and this plan does not add one — see "Testing approach" below.
-- The working tree has uncommitted edits to `src/app/page.tsx` and `src/lib/queries.ts`. `getPlanRows` and `getBoundaryLog` both take `(eventId, orgId)` in the working tree. **Preserve both call sites exactly.** Do not revert or stage those two files' unrelated changes.
+- `getPlanRows` and `getBoundaryLog` both take `(eventId, orgId)` as of commit `d67596c`. **Preserve both call sites exactly** — `page.tsx` is rewritten wholesale in Task 2, and dropping the second argument is the easiest way to break this build.
+- Start from a clean working tree (`d67596c` or later). Stage named files rather than `git add -A`, so an unrelated edit made in another terminal mid-task does not ride along.
 
 ## Testing approach — read this before Task 1
 
@@ -173,7 +174,7 @@ git add src/app/events/new/page.tsx src/components/BriefForm.tsx
 git commit -m "Give the brief its own page, already holding the brief"
 ```
 
-Do **not** `git add -A` — `src/lib/queries.ts` has unrelated in-flight work that is not part of this change.
+Stage those two paths by name, not `git add -A`.
 
 ---
 
@@ -281,7 +282,7 @@ export default async function PlanPage() {
 }
 ```
 
-Note what is preserved: `getPlanRows(event.id, actor.orgId)` and `getBoundaryLog(event.id, actor.orgId)` both keep their two-argument form from the in-flight `queries.ts` work. The `BriefForm` import is gone.
+Note what is preserved: `getPlanRows(event.id, actor.orgId)` and `getBoundaryLog(event.id, actor.orgId)` both keep the two-argument form introduced in `d67596c`. The `BriefForm` import is gone.
 
 - [ ] **Step 3: Delete the `compact` prop**
 
@@ -376,7 +377,7 @@ Then verify the redirect. This needs an org with no events, which the demo datab
 - [ ] **Step 6: Run the existing test suite**
 
 Run: `npm test`
-Expected: all tests pass. Nothing in this change touches `src/lib`, so a failure here means something unrelated broke — most likely the in-flight `queries.ts` edits — and should be investigated before committing.
+Expected: all tests pass. Nothing in this change touches `src/lib`, so a failure here means something unrelated broke and should be investigated before committing rather than absorbed into this commit.
 
 - [ ] **Step 7: Commit**
 
@@ -385,7 +386,7 @@ git add src/app/page.tsx src/components/BriefForm.tsx
 git commit -m "Send the empty plan page to the brief, and drop the disclosure"
 ```
 
-Again, not `git add -A` — `src/lib/queries.ts` stays out.
+Again, staged by name.
 
 ---
 
@@ -395,6 +396,6 @@ Again, not `git add -A` — `src/lib/queries.ts` stays out.
 
 **Placeholder scan.** No TBDs. Every code step carries the literal code. The two "no test file" entries are explicit decisions with stated reasoning, not deferrals.
 
-**Type consistency.** `getPlanRows(eventId, orgId)` and `getBoundaryLog(eventId, orgId)` are two-argument in both the plan and the working tree. `IdentityBar`'s `active` prop is `'plan'` in both pages and its union already permits it. `BriefForm` takes no props after Task 2, and its only two callers (`/events/new` from Task 1, and nothing on `/`) pass none.
+**Type consistency.** `getPlanRows(eventId, orgId)` and `getBoundaryLog(eventId, orgId)` are two-argument in both the plan and `src/lib/queries.ts` as of `d67596c`. `IdentityBar`'s `active` prop is `'plan'` in both pages and its union already permits it. `BriefForm` takes no props after Task 2, and its only two callers (`/events/new` from Task 1, and nothing on `/`) pass none.
 
 **Known asymmetry.** Task 1 leaves `BriefForm` momentarily supporting a `compact` prop that `/` still passes — intentional, so Task 1 stands alone as a reviewable, working commit. Task 2 closes it.
