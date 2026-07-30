@@ -36,8 +36,20 @@ export function buildPlanPrompt(brief: PlanBrief): string {
     `- Catering must be sized for the headcount and honour the dietary notes.`,
     `- The total must not exceed the budget. Trade off between categories`,
     `  where needed and explain the trade-off in the rationale.`,
-    `- Mark an item irreversible when it is a signed contract or a`,
-    `  non-refundable deposit.`,
+    // Deliberately no "use most of the budget" nudge. Asking for high
+    // utilisation pushed the total straight through the ceiling instead:
+    // 78% unprompted, then 101% and 114% with the nudge, across gpt-4.1.
+    // Underspending is a worse plan; overspending is a broken one.
+    `- Leaving part of the budget unspent is acceptable. Exceeding it is not.`,
+    ``,
+    `How this kind of event actually works:`,
+    `- The room is booked with a signed facility agreement and a`,
+    `  non-refundable deposit. That commitment cannot be unwound once made,`,
+    `  and the venue is the largest single cost in the plan by a wide margin.`,
+    `- Food, drink, equipment rental, printed material and consumables are`,
+    `  ordinary purchases that can be cancelled or returned close to the day.`,
+    `- Mark an item irreversible only when it is a commitment you genuinely`,
+    `  could not walk away from. Most line items are not.`,
     ``,
     `Give every item a concrete named vendor and a one-sentence rationale.`,
   ];

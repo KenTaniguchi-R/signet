@@ -84,3 +84,53 @@ describe('buildPlanPrompt', () => {
     assert.ok(!prompt.includes('Additional constraints'));
   });
 });
+
+/**
+ * Left to its own judgement the model guesses at reversibility, and guesses
+ * differently every run. Observed against the same brief:
+ *
+ *   gpt-4.1        marked 9 of 12 irreversible, including $20 of water
+ *   gpt-5.6-terra  marked 0 of 12, and priced the venue at $10
+ *
+ * Both are wrong about the world, and both wreck the routing they feed.
+ * The fix is to state the domain facts that decide reversibility, WITHOUT
+ * naming a threshold or an approver — the guards above still have to pass.
+ */
+describe('buildPlanPrompt - reversibility anchors', () => {
+  test('says the venue is a signed commitment rather than leaving it to taste', () => {
+    const prompt = buildPlanPrompt(brief).toLowerCase();
+    assert.ok(
+      prompt.includes('non-refundable') || prompt.includes('nonrefundable'),
+      'the prompt must name what makes a purchase unwindable',
+    );
+    assert.ok(prompt.includes('venue') && prompt.includes('deposit'));
+  });
+
+  test('says ordinary purchases can be undone, so they are not all marked irreversible', () => {
+    const prompt = buildPlanPrompt(brief).toLowerCase();
+    assert.ok(
+      prompt.includes('cancelled') || prompt.includes('canceled') || prompt.includes('returned'),
+      'without this the model marks consumables irreversible',
+    );
+  });
+
+  test('says the venue dominates the budget, so one item is materially large', () => {
+    const prompt = buildPlanPrompt(brief).toLowerCase();
+    assert.ok(
+      prompt.includes('largest'),
+      'terra priced the venue at $10, which collapses the whole plan',
+    );
+  });
+
+  test('the anchors do not smuggle in a threshold or an approver', () => {
+    // Belt and braces: the guards above run against the shipped prompt, but
+    // these anchors are the most likely place for a policy hint to creep in.
+    const prompt = buildPlanPrompt(brief).toLowerCase();
+    for (const word of ['approv', 'finance', 'legal', 'threshold', 'sign-off']) {
+      assert.ok(!prompt.includes(word), `anchor text leaked "${word}"`);
+    }
+    for (const leak of ['$200', '$2,000', '$2000']) {
+      assert.ok(!buildPlanPrompt(brief).includes(leak), `anchor text leaked "${leak}"`);
+    }
+  });
+});
