@@ -354,8 +354,13 @@ to
 
 - [ ] **Step 4: Verify `compact` is gone and everything typechecks**
 
-Run: `grep -rn "compact" src/`
+Run: `grep -rn "compact" src/app src/components/BriefForm.tsx`
 Expected: no output (exit code 1).
+
+Scope this grep to `src/app` and `BriefForm.tsx` rather than all of `src/`. A
+bare `grep -rn "compact" src/` also matches the English word in a `BoundaryLog`
+comment and in a `policy-router.test.ts` test name, neither of which is this
+prop, so it can never return empty.
 
 Run: `npx tsc --noEmit`
 Expected: no output.
