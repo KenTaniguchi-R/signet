@@ -756,8 +756,9 @@ Maps a role to a person, against the DB. Deliberately separate from `resolvePoli
 - Consumes: `Role` from `src/db/schema.ts`, `db`/`users` from `src/db/index.ts`
 - Produces:
   - `resolveApprover(orgId: string, role: Role): Promise<string | null>` — returns `users.id`
-  - `NoApproverForRoleError` — thrown by callers, exported here so the route can catch it
-  - `resolveApprovers(orgId: string, roles: Role[]): Promise<string[]>` — throws `NoApproverForRoleError` if any role is unfilled
+  - `NoApproverForRoleError` — exported for callers that need the strict behaviour
+  - `resolveApprovers(orgId: string, roles: Role[]): Promise<(string | null)[]>` — null for an unfilled role; `src/lib/approvals.ts` falls back to role matching
+  - `requireApprover(orgId: string, role: Role): Promise<string>` — strict variant, throws
 
 - [ ] **Step 1: Write the failing test**
 
@@ -828,20 +829,41 @@ export async function resolveApprover(
 }
 
 /**
- * Fails loudly on an unfilled role. An approval row with a null approver sits
- * in nobody's inbox and reads as a hang during the demo — a 409 is better.
+ * Resolves each required role to a person, or to null when the org has nobody
+ * in that role.
+ *
+ * REVISED during execution. The original design threw here, on the reasoning
+ * that an approval with a null approver sits in nobody's inbox. That turned
+ * out to be false in this codebase: `src/lib/approvals.ts` already accepts a
+ * null `required_approver_id` and falls back to matching the actor's role —
+ *
+ *     requiredApproverId === null && requiredRole === actor.role
+ *
+ * so a null routes to whoever holds the role rather than to nobody. Throwing
+ * would have made that fallback unreachable and turned a thin seed into a
+ * hard 409 mid-demo. Returning null keeps both paths live: a named approver
+ * when the org is seeded, role-based routing when it isn't.
  */
 export async function resolveApprovers(
   orgId: string,
   roles: Role[],
-): Promise<string[]> {
-  const ids: string[] = [];
+): Promise<(string | null)[]> {
+  const ids: (string | null)[] = [];
   for (const role of roles) {
-    const id = await resolveApprover(orgId, role);
-    if (!id) throw new NoApproverForRoleError(role, orgId);
-    ids.push(id);
+    ids.push(await resolveApprover(orgId, role));
   }
   return ids;
+}
+```
+
+`NoApproverForRoleError` is still exported — `requireApprover(orgId, role)` uses it for call sites that genuinely cannot proceed without a named person. Nothing in this plan calls it; it exists so the strict behaviour is available rather than lost.
+
+```ts
+/** Strict variant. Not used by this plan's paths — available for callers that need it. */
+export async function requireApprover(orgId: string, role: Role): Promise<string> {
+  const id = await resolveApprover(orgId, role);
+  if (!id) throw new NoApproverForRoleError(role, orgId);
+  return id;
 }
 ```
 
@@ -1160,7 +1182,7 @@ Two POST routes wiring the phases to HTTP. Next 16: `ctx.params` is a Promise.
 - Create: `src/app/api/events/[id]/spend/route.ts`
 
 **Interfaces:**
-- Consumes: `planEvent` (Task 6), `runSpendPhase` (Task 8), `getActor` from `src/lib/actor.ts`, `NoApproverForRoleError` (Task 7)
+- Consumes: `planEvent` (Task 6), `runSpendPhase` (Task 8), `getActor` from `src/lib/actor.ts`
 - Produces: `POST /api/events/plan`, `POST /api/events/[id]/spend`
 
 - [ ] **Step 1: Create the plan route**
@@ -1213,7 +1235,6 @@ Create `src/app/api/events/[id]/spend/route.ts`:
 
 ```ts
 import { runSpendPhase } from '@/lib/agent/spend';
-import { NoApproverForRoleError } from '@/lib/policy-router';
 import { getActor } from '@/lib/actor';
 
 export const runtime = 'nodejs';
@@ -1228,17 +1249,12 @@ export async function POST(
   // Next 16: params is a Promise.
   const { id } = await ctx.params;
 
-  try {
-    const result = await runSpendPhase({ actor, eventId: id });
-    return Response.json(result);
-  } catch (err) {
-    if (err instanceof NoApproverForRoleError) {
-      return Response.json({ error: err.message, role: err.role }, { status: 409 });
-    }
-    throw err;
-  }
+  const result = await runSpendPhase({ actor, eventId: id });
+  return Response.json(result);
 }
 ```
+
+No 409 branch: `resolveApprovers` returns null for an unfilled role rather than throwing, and `src/lib/approvals.ts` routes a null-approver row by role instead. See the revision note in Task 7.
 
 - [ ] **Step 3: Typecheck**
 
@@ -1285,7 +1301,9 @@ Then confirm all three roles exist in the demo org:
 ```sql
 SELECT role, count(*) FROM users GROUP BY role ORDER BY role;
 ```
-Expected: a row each for `finance`, `legal`, and `ops`, each count at least 1. If any is missing, stop — Task 7 will throw and the spend route will 409.
+Expected: a row each for `finance`, `legal`, and `ops`, each count at least 1.
+
+A missing role no longer fails the run — `resolveApprovers` returns null and `src/lib/approvals.ts` routes that row by role instead. But a named cardholder is the demo: "the card is issued to *Sato Kenji*" needs a person, not a role. Fix the seed before demoing rather than relying on the fallback.
 
 - [ ] **Step 2: Warm the database**
 
