@@ -39,13 +39,28 @@ export function IdentityBar({
         </div>
       </div>
 
-      <nav className="ml-auto flex gap-1">
+      <nav className="ml-auto flex items-center gap-1">
         <NavLink href="/" label="Plan" isActive={active === 'plan'} />
         <NavLink
           href="/inbox"
           label={inboxCount > 0 ? `Inbox ${inboxCount}` : 'Inbox'}
           isActive={active === 'inbox'}
         />
+
+        <span aria-hidden="true" className="mx-1.5 h-5 w-px bg-rule" />
+
+        {/*
+          A plain anchor, not next/link. /auth/logout is mounted by the Auth0
+          proxy rather than the App Router, so a client-side transition would
+          never reach it. Kept quiet: it is a recovery path, not an action
+          anyone should take mid-demo.
+        */}
+        <a
+          href="/auth/logout"
+          className="rounded-sm px-2.5 py-1.5 text-[0.8125rem] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Sign out
+        </a>
       </nav>
     </header>
   );
