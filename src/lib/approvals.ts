@@ -152,6 +152,14 @@ export async function recordDecision(opts: {
       status: 'charged',
       stripeCardholderId: spend.cardholderId,
       stripeCardId: spend.cardId,
+      // Which rail actually moved the money, and the card face to render. On
+      // this Stripe account the card is a stand-in (`simulated_card`); the
+      // cardholder and the PaymentIntent behind it are real.
+      spendRail: spend.rail,
+      chargeRef: spend.chargeRef,
+      cardLast4: spend.last4,
+      cardExp: spend.exp,
+      simulated: spend.simulated,
     })
     .where(eq(lineItems.id, row.lineItem.id));
 
@@ -170,6 +178,7 @@ export async function recordDecision(opts: {
       cardholderId: spend.cardholderId,
       cardholderName: spend.cardholderName,
       cardId: spend.cardId,
+      cardLast4: spend.last4,
       chargeRef: spend.chargeRef,
       approverUserId: actor.userId,
       metered,
