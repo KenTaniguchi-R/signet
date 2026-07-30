@@ -21,67 +21,76 @@
 - **Next 16 route handlers:** `const { id } = await ctx.params` — params is a Promise.
 - **Meter events emit sequentially, never `Promise.all`** (409 on concurrent same-customer events). Not exercised in this plan, but do not add a `Promise.all` over line items that a later task would inherit.
 - **Secrets live in `.env.local`, never committed.**
-- **`src/lib/policy.ts` and `src/lib/policy.test.ts` are DONE and are the source of truth.** Do not modify or re-test them. Task 1 only fixes the tsconfig flag they need.
+- **`src/lib/policy.ts` and `src/lib/policy.test.ts` are DONE and are the source of truth.** Do not modify or re-test them.
+- **`src/lib/actor.ts` is DONE and is the session contract.** Use `getActor(): Promise<Actor | null>` and `requireActor()`. `Actor.userId` is `users.id`, `Actor.orgId` is `orgs.id`, and `Actor.role` is **singular**. Do not modify this file, do not add a `getViewer`.
+- **Import convention, and it matters:** any module reachable from a `*.test.ts` must use **relative `.ts` specifiers** (`../db/index.ts`). Node's test runner does not read `tsconfig` path aliases, so a transitive `@/db` import fails to resolve under `node --test`. Route handlers and other untested files may use `@/…`, matching `actor.ts` and `proxy.ts`.
+- **A concurrent writer is active in this repo.** Before editing any file you did not create, re-read it — it may have changed since this plan was written. Never revert someone else's edit to make your own apply.
 
 ---
 
-### Task 1: Test tooling — unblock `tsc` and add the test script
+### Task 1: Make the test runner see `.env.local`
 
-`npx tsc --noEmit` is currently RED. `src/lib/policy.test.ts` imports `./policy.ts` with an explicit extension, which TypeScript rejects unless `allowImportingTsExtensions` is set. The flag is safe here because Next already sets `noEmit: true`.
+**Revised 2026-07-30 during execution.** The original Task 1 — adding `allowImportingTsExtensions` to `tsconfig.json` and a `test` script to `package.json` — was completed by a concurrent writer before this plan ran. Verified green: `npm test` → 13/13 pass, `npx tsc --noEmit` → clean. **Do not redo it.**
 
-Node 24 strips TypeScript types natively, so `node --test` runs `.ts` test files with **no new dependencies**. Do not add vitest or jest.
+What remains is a problem the original plan missed. Later tasks add tests for modules that transitively import `src/db/index.ts`, and that module **throws at import time** when `DATABASE_URL` is unset:
+
+```ts
+if (!connectionString) {
+  throw new Error('DATABASE_URL is not set — see .env.example');
+}
+```
+
+`node --test` does not read `.env.local`, so `plan.test.ts`, `spend.test.ts`, and `policy-router.test.ts` would all fail at import before a single assertion ran. `policy.test.ts` escapes this only because its one DB import is `import type`, which type-stripping erases.
+
+`--env-file-if-exists` is the fix: it loads the file when present and is a no-op when absent, so a fresh clone without `.env.local` still runs the tests that don't need it. (Plain `--env-file` errors out when the file is missing.)
 
 **Files:**
-- Modify: `tsconfig.json`
 - Modify: `package.json`
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `npm test` runs all `src/**/*.test.ts`. Every later task's test step uses it.
+- Produces: `npm test` with `.env.local` loaded. Every later task's test step depends on it.
 
-- [ ] **Step 1: Confirm the failure you are fixing**
+- [ ] **Step 1: Reproduce the failure the fix prevents**
 
-Run: `npx tsc --noEmit`
-
-Expected: FAIL with exactly one error —
+Run:
+```bash
+node --test src/db/index.ts
 ```
-src/lib/policy.test.ts(4,31): error TS5097: An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled.
+Expected: FAIL — `DATABASE_URL is not set`. This is the error later tasks would hit.
+
+- [ ] **Step 2: Confirm the fix clears it**
+
+Run:
+```bash
+node --env-file-if-exists=.env.local --test src/db/index.ts
 ```
+Expected: no `DATABASE_URL` error. (It reports 0 tests — that file has none. The point is that it loads.)
 
-- [ ] **Step 2: Add the compiler flag**
+- [ ] **Step 3: Update the test script**
 
-In `tsconfig.json`, inside `compilerOptions`, add the line immediately after `"noEmit": true,`:
+Re-read `package.json` first — a concurrent writer edited it recently. Change the existing `test` script to:
 
 ```json
-    "allowImportingTsExtensions": true,
+    "test": "node --env-file-if-exists=.env.local --test \"src/**/*.test.ts\"",
 ```
 
-- [ ] **Step 3: Verify typecheck is green**
-
-Run: `npx tsc --noEmit`
-Expected: PASS, no output.
-
-- [ ] **Step 4: Add the test script**
-
-In `package.json`, in `scripts`, add:
-
-```json
-    "test": "node --test 'src/**/*.test.ts'",
-```
-
-- [ ] **Step 5: Verify the existing suite runs through npm**
+- [ ] **Step 4: Verify the existing suite still passes**
 
 Run: `npm test`
 Expected: PASS — `tests 13`, `pass 13`, `fail 0`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
+
+Commit **only** `package.json`. Other files in the tree belong to a concurrent writer — do not stage them.
 
 ```bash
-git add tsconfig.json package.json src/lib/policy.ts src/lib/policy.test.ts
-git commit -m "test: run TS tests on node --test, fix tsc for .ts import specifiers
+git add package.json
+git commit -m "test: load .env.local in the test runner
 
-Node 24 strips types natively, so the policy suite needs no test
-dependencies. allowImportingTsExtensions is safe alongside Next's noEmit."
+Modules under test transitively import src/db/index.ts, which throws at
+import when DATABASE_URL is unset. --env-file-if-exists keeps a clone
+without .env.local runnable."
 ```
 
 ---
@@ -350,164 +359,34 @@ invariant 2 fails the build rather than failing review."
 
 ---
 
-### Task 3: The viewer seam
+### Task 3: SUPERSEDED — do not implement
 
-`getViewer()` is implemented by the Auth0 layer, in parallel, by someone else. This task defines the type and a dev implementation so agent work is not blocked.
+**Revised 2026-07-30 during execution.** This task specified a `getViewer()` seam with a production-guarded dev stand-in, to be replaced later by the Auth0 layer. A concurrent writer landed the real thing first: `src/lib/actor.ts` exports `getActor(): Promise<Actor | null>` and `requireActor(): Promise<Actor>`, reading the Auth0 session and joining `users` to `orgs`.
 
-**The critical detail:** `Viewer.userId` is `users.id` (a UUID from our table), **not** the Auth0 `sub`. `approvals.required_approver_id` and `approvals.approved_by` are foreign keys to `users.id`. Build-notes §4.2 returns `sub` here, which would fail the FK or silently compare unequal.
+It gets right the detail this task existed to protect: `Actor.userId` is `users.id`, not the Auth0 `sub`, so the `approvals` foreign keys resolve.
 
-**Files:**
-- Create: `src/lib/viewer.ts`
-- Test: `src/lib/viewer.test.ts`
-
-**Interfaces:**
-- Consumes: `Role` from `src/db/schema.ts`
-- Produces:
-  - `type Viewer = { userId: string; orgId: string; auth0Sub: string; roles: Role[]; claimedRoles: string[] }`
-  - `getViewer(): Promise<Viewer | null>`
-  - `assertDevViewerAllowed(env): void` — exported for testing the production guard
-
-- [ ] **Step 1: Write the failing test**
-
-Create `src/lib/viewer.test.ts`:
+**The contract later tasks consume:**
 
 ```ts
-import { describe, test } from 'node:test';
-import assert from 'node:assert/strict';
-
-import { assertDevViewerAllowed } from './viewer.ts';
-
-describe('dev viewer guard', () => {
-  test('throws in production even when the env var is set', () => {
-    assert.throws(
-      () =>
-        assertDevViewerAllowed({
-          NODE_ENV: 'production',
-          SIGNET_DEV_VIEWER_EMAIL: 'sato@example.com',
-        }),
-      /production/,
-    );
-  });
-
-  test('throws in development when the env var is absent', () => {
-    assert.throws(
-      () => assertDevViewerAllowed({ NODE_ENV: 'development' }),
-      /SIGNET_DEV_VIEWER_EMAIL/,
-    );
-  });
-
-  test('permits a development viewer when explicitly configured', () => {
-    assert.doesNotThrow(() =>
-      assertDevViewerAllowed({
-        NODE_ENV: 'development',
-        SIGNET_DEV_VIEWER_EMAIL: 'sato@example.com',
-      }),
-    );
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test`
-Expected: FAIL — cannot resolve `./viewer.ts`.
-
-- [ ] **Step 3: Write minimal implementation**
-
-Create `src/lib/viewer.ts`:
-
-```ts
-import { eq } from 'drizzle-orm';
-
-import { db, users } from '../db/index.ts';
-import type { Role } from '../db/schema.ts';
-
-export type Viewer = {
-  /** users.id — a UUID from OUR table. NOT the Auth0 sub. */
-  userId: string;
-  /** orgs.id — a UUID from OUR table. NOT the Auth0 org_id. */
-  orgId: string;
-  /** The Auth0 subject, carried for logging and token exchange. */
+export interface Actor {
+  userId: string;      // users.id       — FK target for approvals
   auth0Sub: string;
-  /** Authoritative. Read from the users table — survives a token refresh. */
-  roles: Role[];
-  /** From the session claim. Display only — never authorize on this. */
-  claimedRoles: string[];
-};
-
-type ViewerEnv = {
-  NODE_ENV?: string;
-  SIGNET_DEV_VIEWER_EMAIL?: string;
-};
-
-/**
- * The dev viewer exists so agent work can proceed before the Auth0 layer
- * lands. It must be impossible to reach in production: a seeded identity
- * that silently works in prod is exactly the failure this whole app is about.
- */
-export function assertDevViewerAllowed(env: ViewerEnv): void {
-  if (env.NODE_ENV === 'production') {
-    throw new Error('The dev viewer is not available in production.');
-  }
-  if (!env.SIGNET_DEV_VIEWER_EMAIL) {
-    throw new Error(
-      'SIGNET_DEV_VIEWER_EMAIL is not set — see .env.example. ' +
-        'Set it, or implement getViewer() against the Auth0 session.',
-    );
-  }
+  orgId: string;       // orgs.id        — FK target for events
+  auth0OrgId: string;
+  email: string;
+  displayName: string;
+  role: Role;          // SINGULAR, not an array
 }
 
-/**
- * TODO(auth0-layer): replace the body with the real session read.
- * The signature is the contract — do not change it.
- */
-export async function getViewer(): Promise<Viewer | null> {
-  assertDevViewerAllowed(process.env);
-
-  const [row] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, process.env.SIGNET_DEV_VIEWER_EMAIL as string))
-    .limit(1);
-
-  if (!row) return null;
-
-  return {
-    userId: row.id,
-    orgId: row.orgId,
-    auth0Sub: row.auth0Sub,
-    roles: [row.role],
-    claimedRoles: [],
-  };
-}
+export async function getActor(): Promise<Actor | null>;
+export async function requireActor(): Promise<Actor>;   // throws instead of returning null
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+`getActor()` returns `null` both when there is no session and when the authenticated user has no row in the org — an unprovisioned user is not a member.
 
-Run: `npm test`
-Expected: PASS — the three guard tests, plus everything from Tasks 1–2.
+**Do not create `src/lib/viewer.ts`. Do not modify `src/lib/actor.ts`.** Tasks 6, 8, and 9 consume `Actor` and `getActor` directly. No task reads `Actor.role`: the approver for a line item is resolved from the DB by role in Task 7, never from the session — that separation is invariant 4.
 
-- [ ] **Step 5: Document the env var**
-
-Append to `.env.example`:
-
-```
-# --- Dev only: stand-in for the Auth0 session until getViewer() is real ---
-# Throws if NODE_ENV=production. Set to a seeded user's email.
-SIGNET_DEV_VIEWER_EMAIL=
-```
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/lib/viewer.ts src/lib/viewer.test.ts .env.example
-git commit -m "feat: getViewer seam with a production-guarded dev stand-in
-
-Viewer.userId is users.id, not the Auth0 sub — approvals FKs point at
-users.id and a sub there would compare unequal without erroring."
-```
-
----
+Skip to Task 4.
 
 ### Task 4: Schema additions
 
@@ -698,10 +577,10 @@ git commit -m "feat: single-source model pin (gpt-4.1) and activity boundary log
 - Test: `src/lib/agent/plan.test.ts`
 
 **Interfaces:**
-- Consumes: `planOutput` (Task 2), `signetModel` (Task 5), `Viewer` (Task 3)
+- Consumes: `planOutput` (Task 2), `signetModel` (Task 5), `Actor` from `src/lib/actor.ts`
 - Produces:
   - `buildPlanPrompt(brief: { title: string; budgetCents: number; headcount: number; notes?: string }): string`
-  - `planEvent(args: { viewer: Viewer; brief: PlanBrief }): Promise<{ eventId: string; plan: PlanOutput }>`
+  - `planEvent(args: { actor: Actor; brief: PlanBrief }): Promise<{ eventId: string; plan: PlanOutput }>`
   - `type PlanBrief`
 
 - [ ] **Step 1: Write the failing test**
@@ -764,7 +643,7 @@ Create `src/lib/agent/plan.ts`:
 import { Output, generateText } from 'ai';
 
 import { db, events, lineItems } from '../db/index.ts';
-import type { Viewer } from '../viewer.ts';
+import type { Actor } from '../actor.ts';
 import { signetModel } from './model.ts';
 import { type PlanOutput, planOutput } from './schema.ts';
 
@@ -808,7 +687,7 @@ export function buildPlanPrompt(brief: PlanBrief): string {
 }
 
 export async function planEvent(args: {
-  viewer: Viewer;
+  actor: Actor;
   brief: PlanBrief;
 }): Promise<{ eventId: string; plan: PlanOutput }> {
   const { output } = await generateText({
@@ -820,10 +699,10 @@ export async function planEvent(args: {
   const [event] = await db
     .insert(events)
     .values({
-      orgId: args.viewer.orgId,
+      orgId: args.actor.orgId,
       title: args.brief.title,
       budgetCents: args.brief.budgetCents,
-      createdBy: args.viewer.userId,
+      createdBy: args.actor.userId,
       status: 'planning',
     })
     .returning();
@@ -992,12 +871,12 @@ The core of the feature. A `ToolLoopAgent` with one gated tool; `'user-approval'
 - Test: `src/lib/agent/spend.test.ts`
 
 **Interfaces:**
-- Consumes: `spendInput` (Task 2), `resolvePolicy` (existing), `resolveApprovers` (Task 7), `signetModel` (Task 5), `logActivity` (Task 5), `Viewer` (Task 3)
+- Consumes: `spendInput` (Task 2), `resolvePolicy` (existing), `resolveApprovers` (Task 7), `signetModel` (Task 5), `logActivity` (Task 5), `Actor` from `src/lib/actor.ts`
 - Produces:
   - `spendApprovalRule(input: SpendInput): 'user-approval' | undefined`
   - `buildSpendAgent(): ToolLoopAgent<...>`
   - `persistApprovalRequests(args): Promise<{ created: number; skipped: string[] }>`
-  - `runSpendPhase(args: { viewer: Viewer; eventId: string }): Promise<{ approvalsCreated: number; autoApproved: number }>`
+  - `runSpendPhase(args: { actor: Actor; eventId: string }): Promise<{ approvalsCreated: number; autoApproved: number }>`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1074,7 +953,7 @@ import { approvals, db, events, lineItems } from '../db/index.ts';
 import { logActivity } from '../activity.ts';
 import { resolvePolicy } from '../policy.ts';
 import { resolveApprovers } from '../policy-router.ts';
-import type { Viewer } from '../viewer.ts';
+import type { Actor } from '../actor.ts';
 import { signetModel } from './model.ts';
 import { type SpendInput, spendInput } from './schema.ts';
 
@@ -1132,7 +1011,7 @@ export function buildSpendAgent() {
 }
 
 export async function runSpendPhase(args: {
-  viewer: Viewer;
+  actor: Actor;
   eventId: string;
 }): Promise<{ approvalsCreated: number; autoApproved: number }> {
   const items = await db
@@ -1192,7 +1071,7 @@ export async function runSpendPhase(args: {
     });
 
     const approverIds = await resolveApprovers(
-      args.viewer.orgId,
+      args.actor.orgId,
       decision.approverRoles,
     );
 
@@ -1222,7 +1101,7 @@ export async function runSpendPhase(args: {
       payload: input,
       harnessInjected: {
         approverIds,
-        orgId: args.viewer.orgId,
+        orgId: args.actor.orgId,
         ruleName: decision.ruleName,
         requiredRoles: decision.approverRoles,
       },
@@ -1281,7 +1160,7 @@ Two POST routes wiring the phases to HTTP. Next 16: `ctx.params` is a Promise.
 - Create: `src/app/api/events/[id]/spend/route.ts`
 
 **Interfaces:**
-- Consumes: `planEvent` (Task 6), `runSpendPhase` (Task 8), `getViewer` (Task 3), `NoApproverForRoleError` (Task 7)
+- Consumes: `planEvent` (Task 6), `runSpendPhase` (Task 8), `getActor` from `src/lib/actor.ts`, `NoApproverForRoleError` (Task 7)
 - Produces: `POST /api/events/plan`, `POST /api/events/[id]/spend`
 
 - [ ] **Step 1: Create the plan route**
@@ -1293,7 +1172,7 @@ import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod';
 
 import { planEvent } from '@/lib/agent/plan';
-import { getViewer } from '@/lib/viewer';
+import { getActor } from '@/lib/actor';
 
 export const runtime = 'nodejs';
 
@@ -1305,8 +1184,8 @@ const body = z.object({
 });
 
 export async function POST(req: Request) {
-  const viewer = await getViewer();
-  if (!viewer) return new Response('Unauthorized', { status: 401 });
+  const actor = await getActor();
+  if (!actor) return new Response('Unauthorized', { status: 401 });
 
   const parsed = body.safeParse(await req.json());
   if (!parsed.success) {
@@ -1314,7 +1193,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { eventId, plan } = await planEvent({ viewer, brief: parsed.data });
+    const { eventId, plan } = await planEvent({ actor, brief: parsed.data });
     return Response.json({ eventId, plan });
   } catch (err) {
     if (NoObjectGeneratedError.isInstance(err)) {
@@ -1335,7 +1214,7 @@ Create `src/app/api/events/[id]/spend/route.ts`:
 ```ts
 import { runSpendPhase } from '@/lib/agent/spend';
 import { NoApproverForRoleError } from '@/lib/policy-router';
-import { getViewer } from '@/lib/viewer';
+import { getActor } from '@/lib/actor';
 
 export const runtime = 'nodejs';
 
@@ -1343,14 +1222,14 @@ export async function POST(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const viewer = await getViewer();
-  if (!viewer) return new Response('Unauthorized', { status: 401 });
+  const actor = await getActor();
+  if (!actor) return new Response('Unauthorized', { status: 401 });
 
   // Next 16: params is a Promise.
   const { id } = await ctx.params;
 
   try {
-    const result = await runSpendPhase({ viewer, eventId: id });
+    const result = await runSpendPhase({ actor, eventId: id });
     return Response.json(result);
   } catch (err) {
     if (err instanceof NoApproverForRoleError) {
@@ -1396,13 +1275,17 @@ No new code. This is the gate that says the feature works.
 
 - [ ] **Step 1: Seed users covering every role the policy can name**
 
-The policy router can require `finance`, `legal`, and `ops`. If any is unfilled, Task 7 throws and the spend route 409s by design. Confirm with a query:
+The policy router can require `finance`, `legal`, and `ops`. If any is unfilled, Task 7 throws and the spend route 409s by design.
 
-Run:
-```bash
-npx drizzle-kit studio
+A concurrent writer already built the seed script, which creates one user per role:
+
+Run: `npm run db:seed`
+
+Then confirm all three roles exist in the demo org:
+```sql
+SELECT role, count(*) FROM users GROUP BY role ORDER BY role;
 ```
-or a direct query — verify at least one `users` row per role in the demo org, and that `SIGNET_DEV_VIEWER_EMAIL` matches one of them.
+Expected: a row each for `finance`, `legal`, and `ops`, each count at least 1. If any is missing, stop — Task 7 will throw and the spend route will 409.
 
 - [ ] **Step 2: Warm the database**
 
@@ -1499,4 +1382,4 @@ git commit -m "docs: end-to-end verification of the plan and gate against the de
 
 Named so they are not silently assumed complete: the resume path and `POST /api/approvals/[id]/approve`; Stripe Issuing; the Token Vault exchange and Slack post; the `signet_managed_spend` meter event; `/inbox` and `/events/[id]` pages; streaming the plan (cut line #2 — the upgrade is `streamText` + `partialOutputStream` with the same schema).
 
-The real `getViewer()` is implemented by the Auth0 layer in parallel. Task 3 defines the contract; whoever lands Auth0 replaces the body and must keep `userId` as `users.id`.
+The Auth0 session layer (`src/lib/auth0.ts`, `src/lib/actor.ts`, `src/proxy.ts`) and the seed script (`src/db/seed.mts`) were built by a concurrent writer and are consumed, not modified, by this plan.
