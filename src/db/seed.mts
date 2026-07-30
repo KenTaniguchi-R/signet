@@ -48,19 +48,22 @@ const ORG_NAME = 'Northbeam Collective';
 const PEOPLE: { role: Role; displayName: string; email: string; subEnv: string }[] = [
   {
     role: 'finance',
-    displayName: 'Sato Kenji',
-    email: process.env.SEED_FINANCE_EMAIL ?? 'kenji.sato@northbeam.dev',
+    // The finance approver fires the Token Vault action, so this row must be a
+    // real person with a real Slack account — otherwise the inbox shows one
+    // name and the Slack message another, and that seam is visible on stage.
+    displayName: process.env.SEED_FINANCE_NAME ?? 'Ken Taniguchi',
+    email: process.env.SEED_FINANCE_EMAIL ?? 'ken.taniguchi@northbeam.dev',
     subEnv: 'SEED_FINANCE_SUB',
   },
   {
     role: 'legal',
-    displayName: 'Amara Okonkwo',
+    displayName: process.env.SEED_LEGAL_NAME ?? 'Amara Okonkwo',
     email: process.env.SEED_LEGAL_EMAIL ?? 'amara.okonkwo@northbeam.dev',
     subEnv: 'SEED_LEGAL_SUB',
   },
   {
     role: 'ops',
-    displayName: 'Devin Whitlock',
+    displayName: process.env.SEED_OPS_NAME ?? 'Devin Whitlock',
     email: process.env.SEED_OPS_EMAIL ?? 'devin.whitlock@northbeam.dev',
     subEnv: 'SEED_OPS_SUB',
   },
