@@ -47,8 +47,13 @@ export function PlanTable({
   title: string;
   budgetCents: number;
 }) {
-  const halted = rows.filter((row) => row.decision.requiresApproval);
-  const settled = rows.filter((row) => !row.decision.requiresApproval);
+  // `requiresApproval` is re-derived from the pure policy function, so it stays
+  // true forever — including after a human has signed and the money has moved.
+  // Awaiting means "the rule fired AND nobody has settled it yet", or the
+  // header keeps counting settled rows as blocked.
+  const isAwaiting = (row: PlanRow) => row.decision.requiresApproval && row.status !== 'charged';
+  const halted = rows.filter(isAwaiting);
+  const settled = rows.filter((row) => !isAwaiting(row));
   const ordered = [...halted, ...settled];
   const total = rows.reduce((sum, row) => sum + row.amountCents, 0);
   const overBudget = total > budgetCents;
