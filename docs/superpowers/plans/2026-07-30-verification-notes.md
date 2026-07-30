@@ -1,5 +1,73 @@
 # Task 10 — end-to-end verification against the demo brief
 
+> **RESOLVED — see "Successful run" below.** The BLOCKED report that follows it is kept intact: its diagnosis was correct, and the credit-exhaustion trap it documents is worth keeping.
+
+---
+
+## Successful run (authoritative)
+
+A new `OPENAI_API_KEY` was supplied and the agent path **still failed with the same credit error**. The cause was not billing:
+
+`~/.claude/settings.json` contains an `env` block exporting a stale `OPENAI_API_KEY` (56 chars). **Node's `--env-file` does not override a variable already present in the process environment**, so the new 164-char key in `.env.local` was shadowed for every command run inside Claude Code. It presents as a billing error rather than a config one, which is what made it expensive to find.
+
+This does *not* affect `npm run dev` started from a normal terminal — that block is injected only into Claude Code's shell. **Action:** update or remove `OPENAI_API_KEY` in `~/.claude/settings.json`.
+
+Note also: a `max_tokens: 5` request returns HTTP 200 even on an exhausted key. A smoke test does not detect exhaustion; only a real plan-sized request does.
+
+### The run
+
+Actor: **Ken Taniguchi** (finance) in `org_EXAMPLE`.
+
+```
+--- PHASE 1: plan ---
+eventId=2a22d41a-adab-4871-9d9e-f8b4dc3d55de
+12 items, total $4390.00 of $5000 budget -> WITHIN     (model call ~7.7s)
+
+--- PHASE 2: spend (gated) ---
+{"approvalsCreated":5,"autoApproved":8}
+line item statuses: { auto_approved: 8, awaiting_approval: 4 }
+
+--- approvals rows ---
+Campus Event Center, Main Hall $2200.00 rev=false | finance -> Ken Taniguchi  | irreversible_over_2000  | appr=aitxt-jw55Cn5j
+Campus Event Center, Main Hall $2200.00 rev=false | legal   -> Amara Okonkwo  | irreversible_over_2000  | appr=aitxt-jw55Cn5j
+Fresh Fork Catering             $900.00 rev=true  | ops     -> Devin Whitlock | band_200_2000_team_lead
+AV Solutions Inc.               $320.00 rev=true  | ops     -> Devin Whitlock | band_200_2000_team_lead
+Amazon.com                      $350.00 rev=true  | ops     -> Devin Whitlock | band_200_2000_team_lead
+
+--- fan-out check ---
+Campus Event Center $2200.00: 2 rows [finance,legal], 1 distinct approval_id -> PASS
+
+--- boundary check ---
+4 approval_required rows
+approver UUIDs appearing inside model payload: 0 -> PASS (model never named an approver)
+nulls in required_approver_id: 0
+```
+
+Three distinct humans across five approvals, each resolved from `users` by role. The venue contract fanned out to two approvers sharing one approval request — the case spec §4's `/inbox` mock depends on.
+
+### Suite state
+
+```
+npm test         -> 72 tests, 72 pass, 0 fail
+npx tsc --noEmit -> clean
+npm run build    -> clean, /api/events/[id]/spend registers as dynamic (ƒ)
+```
+
+### Findings for the demo
+
+1. **The card will name Ken Taniguchi, not Sato Kenji.** Two orgs exist; `AUTH0_ORG_ID` selects `org_EXAMPLE`, whose finance holder is Ken. Sato is finance in the stale `org_EXAMPLE_STALE`. Routing is correct; the script (beat 5, §4 mock) says "Sato". Reseed or change the words. Both orgs share `cus_EXAMPLE`, so metering is unaffected.
+2. **`SIGNET_TOOL_APPROVAL_SECRET` was unset** — the run logged `approval requests will be unsigned`. Now generated into `.env.local`. Defence in depth, not the boundary.
+3. **Budget adherence varies per run.** This run: $4,390 of $5,000. An earlier run in the DB was ~14% over, matching a note already in `src/lib/agent/plan.ts`. Planning does not hard-enforce the ceiling by design (spec §9). Re-run rather than trusting one shot if the number matters on stage.
+4. **`.superpowers/` was not git-ignored.** Added to `.gitignore`.
+
+### Prerequisite for the execution work
+
+The approval gate's row lookup is scoped by `lineItemId` alone, without event/org scoping, because `SingleToolApprovalFunction` has no event context without wiring the SDK's `runtimeContext`. That is safe **only** while `spendTool.execute()` stays side-effect-free — every write currently happens in `runSpendPhase`, where the event constraint sits on the UPDATE statement. When the card, Slack post, or meter event moves into `execute()`, the unscoped gate becomes the sole authority over whether it fires. Scope it first.
+
+---
+
+## Superseded: the original BLOCKED report
+
 Run at 2026-07-30, ~22:20–22:35 UTC. Result: **BLOCKED** at the live-model step.
 The OpenAI account backing `OPENAI_API_KEY` has zero credit balance, and that
 blocks both `/api/events/plan` and `/api/events/[id]/spend`, which both call
