@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db, orgs, users } from '@/db';
 
@@ -22,6 +22,18 @@ export async function resolveActor(): Promise<Actor | null> {
   const email = process.env.SIGNET_DEV_VIEWER_EMAIL;
   if (!email) return null;
 
+  /*
+   * Scoped to AUTH0_ORG_ID, not email alone.
+   *
+   * Re-seeding against a new Auth0 organization leaves the same demo emails
+   * present in two org rows. Matching on email alone then picks whichever the
+   * planner returns first, so the dev viewer can silently land in the wrong
+   * tenant — and every downstream org check fails 404 for reasons that look
+   * nothing like the cause. Fail closed instead: no org, no actor.
+   */
+  const auth0OrgId = process.env.AUTH0_ORG_ID;
+  if (!auth0OrgId) return null;
+
   const [row] = await db
     .select({
       userId: users.id,
@@ -34,7 +46,7 @@ export async function resolveActor(): Promise<Actor | null> {
     })
     .from(users)
     .innerJoin(orgs, eq(users.orgId, orgs.id))
-    .where(eq(users.email, email))
+    .where(and(eq(users.email, email), eq(orgs.auth0OrgId, auth0OrgId)))
     .limit(1);
 
   return row ?? null;
