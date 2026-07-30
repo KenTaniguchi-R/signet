@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import { approvals, db, events, lineItems, users } from '@/db';
+import { approvals, db, events, lineItems, users, type Role } from '@/db';
 
-import type { PlanRow } from '@/components/PlanTable';
+import type { PlanRow, SpentCard } from '@/components/PlanTable';
 import { resolvePolicy } from './policy';
 
 /** The org's most recent event, or null before the agent has planned anything. */
@@ -15,6 +15,27 @@ export async function getLatestEvent(orgId: string) {
     .limit(1);
 
   return event ?? null;
+}
+
+/**
+ * The card face for a settled line item, or null if there is nothing to show.
+ *
+ * Requires BOTH a persisted card face and a resolved signer: rendering a card
+ * with no name on it would undercut the one claim the card exists to make.
+ * An auto-approved line item has no signer and so shows no card — the money
+ * moved under policy, not under a person, and the UI should not pretend it did.
+ */
+function toSpentCard(
+  item: { cardLast4: string | null; cardExp: string | null },
+  signer: { displayName: string; role: Role } | undefined,
+): SpentCard | null {
+  if (!item.cardLast4 || !item.cardExp || !signer) return null;
+  return {
+    cardholderName: signer.displayName,
+    role: signer.role,
+    last4: item.cardLast4,
+    exp: item.cardExp,
+  };
 }
 
 /**
@@ -45,6 +66,29 @@ export async function getPlanRows(eventId: string): Promise<PlanRow[]> {
         items.map((item) => item.id),
       ),
     );
+
+  // Who actually signed. The card is issued in the name of the person who
+  // RESOLVED the approval, which is read from `approved_by` — set from the
+  // server session — not from the role the policy asked for.
+  const signed = await db
+    .select({
+      lineItemId: approvals.lineItemId,
+      displayName: users.displayName,
+      role: users.role,
+    })
+    .from(approvals)
+    .innerJoin(users, eq(users.id, approvals.approvedBy))
+    .where(
+      and(
+        inArray(
+          approvals.lineItemId,
+          items.map((item) => item.id),
+        ),
+        eq(approvals.status, 'approved'),
+      ),
+    );
+
+  const signerByLineItem = new Map(signed.map((s) => [s.lineItemId, s]));
 
   const byLineItem = new Map<string, { role: (typeof rows)[number]['role']; displayName: string | null }[]>();
   for (const row of rows) {
@@ -79,6 +123,7 @@ export async function getPlanRows(eventId: string): Promise<PlanRow[]> {
       status: item.status,
       decision,
       approvers,
+      card: toSpentCard(item, signerByLineItem.get(item.id)),
     };
   });
 }

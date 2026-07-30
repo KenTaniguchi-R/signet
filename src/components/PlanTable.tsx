@@ -1,9 +1,10 @@
-import type { LineItemStatus } from '@/db';
+import type { LineItemStatus, Role } from '@/db';
 import { formatCategory, formatCents } from '@/lib/format';
 import type { PolicyDecision } from '@/lib/policy';
 
 import { PolicyTrace, type TraceApprover } from './PolicyTrace';
 import { ROLE_LABEL } from './Seal';
+import { SpendCard } from './SpendCard';
 import { StatusPill } from './StatusPill';
 
 export interface PlanRow {
@@ -15,6 +16,18 @@ export interface PlanRow {
   status: LineItemStatus;
   decision: PolicyDecision;
   approvers: TraceApprover[];
+  /**
+   * The card this line item was charged on. Null until the spend executes —
+   * only a settled row has one.
+   */
+  card: SpentCard | null;
+}
+
+export interface SpentCard {
+  cardholderName: string;
+  role: Role;
+  last4: string;
+  exp: string;
 }
 
 /**
@@ -85,10 +98,14 @@ export function PlanTable({
 }
 
 function PlanRowGroup({ row, index }: { row: PlanRow; index: number }) {
-  const isHalted = row.decision.requiresApproval;
+  const isCharged = row.status === 'charged';
+  // A charged row keeps its policy trace — the rule that required a human is
+  // still the interesting fact about it — but it stops reading as blocked.
+  const isHalted = row.decision.requiresApproval && !isCharged;
   const cell = `border-b border-rule-soft px-3 py-2.5 align-baseline ${
     isHalted ? 'bg-halt-tint' : ''
   }`;
+  const expanded = isHalted || row.card !== null;
 
   return (
     <>
@@ -119,15 +136,38 @@ function PlanRowGroup({ row, index }: { row: PlanRow; index: number }) {
               {row.decision.approverRoles.map((role) => ROLE_LABEL[role]).join(' + ')}
             </StatusPill>
           ) : (
-            <StatusPill tone="ok">Settled</StatusPill>
+            <StatusPill tone="ok">{isCharged ? 'Charged' : 'Settled'}</StatusPill>
           )}
         </td>
       </tr>
 
-      {isHalted && (
+      {expanded && (
         <tr className="row-settle" style={{ animationDelay: `${index * 0.04 + 0.02}s` }}>
-          <td colSpan={5} className="border-b border-rule-soft bg-halt-tint px-3 pb-2.5">
-            <PolicyTrace decision={row.decision} approvers={row.approvers} />
+          <td
+            colSpan={5}
+            className={`border-b border-rule-soft px-3 pb-3.5 ${isHalted ? 'bg-halt-tint' : ''}`}
+          >
+            {isHalted && <PolicyTrace decision={row.decision} approvers={row.approvers} />}
+
+            {row.card && (
+              /*
+                The payoff. The rule that demanded a human sits directly above
+                the card that human's name is on, so the causal chain reads in
+                one glance: this rule → that person → this card.
+              */
+              <div className="pt-1">
+                <p className="pb-2 font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint">
+                  Charged under {row.card.cardholderName}
+                </p>
+                <SpendCard
+                  cardholderName={row.card.cardholderName}
+                  role={row.card.role}
+                  last4={row.card.last4}
+                  exp={row.card.exp}
+                  limitCents={row.amountCents}
+                />
+              </div>
+            )}
           </td>
         </tr>
       )}
