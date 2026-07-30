@@ -642,7 +642,7 @@ Create `src/lib/agent/plan.ts`:
 ```ts
 import { Output, generateText } from 'ai';
 
-import { db, events, lineItems } from '../db/index.ts';
+import { db, events, lineItems } from '../../db/index.ts';
 import type { Actor } from '../actor.ts';
 import { signetModel } from './model.ts';
 import { type PlanOutput, planOutput } from './schema.ts';
@@ -971,7 +971,7 @@ Create `src/lib/agent/spend.ts`:
 import { ToolLoopAgent, isStepCount, tool } from 'ai';
 import { and, eq } from 'drizzle-orm';
 
-import { approvals, db, events, lineItems } from '../db/index.ts';
+import { approvals, db, events, lineItems } from '../../db/index.ts';
 import { logActivity } from '../activity.ts';
 import { resolvePolicy } from '../policy.ts';
 import { resolveApprovers } from '../policy-router.ts';
