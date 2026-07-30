@@ -4,18 +4,36 @@ import { db, orgs, users } from '@/db';
 
 import { getActor, type Actor } from './actor';
 
+export interface ResolvedActor {
+  actor: Actor;
+  /**
+   * True when the actor came from the dev fallback rather than a real session.
+   *
+   * Reported from the point of decision, never inferred afterwards from the
+   * actor's shape. The previous `isDevActor()` sniffed for a `pending|` sub and
+   * silently stopped working the moment the seeded users got real ones — it
+   * returned false for exactly the case it existed to catch.
+   */
+  viaFallback: boolean;
+}
+
 /**
  * `getActor()` with a development-only fallback.
  *
- * The Auth0 users do not exist yet, so without this the UI cannot be built or
- * reviewed at all. Gated on a hard `NODE_ENV !== 'production'` check AND an
- * explicit opt-in env var, so it cannot ship even by accident.
+ * Gated on a hard `NODE_ENV !== 'production'` check AND an explicit opt-in env
+ * var, so it cannot ship even by accident. With `SIGNET_DEV_VIEWER_EMAIL`
+ * unset this is `getActor()` exactly.
  *
- * Delete the fallback once real logins work. It is scaffolding, not a feature.
+ * The fallback is now an escape hatch, not the demo path: the seeded users have
+ * real Auth0 subs, so the demo runs on two real logins in two browser profiles.
+ * A fallback actor can render the inbox but cannot approve — approve/decline
+ * require a real session under Invariant 1 — which is why callers surface
+ * `viaFallback` in the UI. Delete this file once the escape hatch is no longer
+ * wanted; it is scaffolding, not a feature.
  */
-export async function resolveActor(): Promise<Actor | null> {
+export async function resolveActor(): Promise<ResolvedActor | null> {
   const actor = await getActor().catch(() => null);
-  if (actor) return actor;
+  if (actor) return { actor, viaFallback: false };
 
   if (process.env.NODE_ENV === 'production') return null;
 
@@ -49,10 +67,5 @@ export async function resolveActor(): Promise<Actor | null> {
     .where(and(eq(users.email, email), eq(orgs.auth0OrgId, auth0OrgId)))
     .limit(1);
 
-  return row ?? null;
-}
-
-/** True when the actor came from the dev fallback rather than a real session. */
-export function isDevActor(actor: Actor | null): boolean {
-  return Boolean(actor && actor.auth0Sub.startsWith('pending|'));
+  return row ? { actor: row, viaFallback: true } : null;
 }

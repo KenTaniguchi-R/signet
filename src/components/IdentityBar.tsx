@@ -16,10 +16,12 @@ export function IdentityBar({
   actor,
   active,
   inboxCount,
+  viaFallback = false,
 }: {
   actor: Actor;
   active: 'plan' | 'inbox';
   inboxCount: number;
+  viaFallback?: boolean;
 }) {
   return (
     <header className="flex items-center gap-4 border-b border-rule bg-surface px-5 py-3.5">
@@ -36,6 +38,23 @@ export function IdentityBar({
             {ROLE_LABEL[actor.role]}
           </span>
           <span className="text-[0.8125rem] text-ink-faint">{actor.email}</span>
+
+          {/*
+            Halt ink, because halt already means "a human is required here" and
+            this is the one viewer who cannot supply one: the dev fallback can
+            render an inbox but approve/decline demand a real session.
+
+            No NODE_ENV guard needed — resolveActor() refuses the fallback in
+            production, so this cannot render there.
+          */}
+          {viaFallback && (
+            <span
+              title="Dev fallback, not a real session. Approve and decline will refuse this actor."
+              className="rounded-sm bg-halt-tint px-1.5 py-0.5 font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-halt"
+            >
+              Dev viewer
+            </span>
+          )}
         </div>
       </div>
 

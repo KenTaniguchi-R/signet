@@ -31,10 +31,14 @@ export async function POST(request: Request) {
    * Auth0 users exist. The fallback is already gated on NODE_ENV !==
    * 'production' plus an explicit env var, so this cannot ship open.
    */
-  const actor = await resolveActor();
-  if (!actor) {
+  const resolved = await resolveActor();
+  if (!resolved) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
+  // `viaFallback` is deliberately ignored: the approver on this path comes from
+  // the policy table (Invariant 2), so how the caller authenticated cannot
+  // change the outcome.
+  const { actor } = resolved;
 
   const body = await request.json().catch(() => null);
   const parsed = planRequest.safeParse(body);

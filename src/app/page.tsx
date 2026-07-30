@@ -10,8 +10,9 @@ import { SignedOut } from './SignedOut';
 export const dynamic = 'force-dynamic';
 
 export default async function PlanPage() {
-  const actor = await resolveActor();
-  if (!actor) return <SignedOut />;
+  const resolved = await resolveActor();
+  if (!resolved) return <SignedOut />;
+  const { actor, viaFallback } = resolved;
 
   const [event, inboxCount] = await Promise.all([
     getLatestEvent(actor.orgId),
@@ -23,7 +24,12 @@ export default async function PlanPage() {
 
   return (
     <>
-      <IdentityBar actor={actor} active="plan" inboxCount={inboxCount} />
+      <IdentityBar
+        actor={actor}
+        active="plan"
+        inboxCount={inboxCount}
+        viaFallback={viaFallback}
+      />
 
       <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-5 px-6 py-10">
         {event && rows.length > 0 ? (

@@ -18,10 +18,13 @@ export async function POST(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const actor = await resolveActor();
-  if (!actor) {
+  const resolved = await resolveActor();
+  if (!resolved) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
+  // `viaFallback` is deliberately ignored: every approver on this path is
+  // resolved by the policy table (Invariant 2), never by the caller.
+  const { actor } = resolved;
 
   // Next 16: params is a Promise.
   const { id } = await ctx.params;

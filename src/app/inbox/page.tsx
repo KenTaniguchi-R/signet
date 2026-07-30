@@ -10,14 +10,20 @@ import { getInbox, type InboxItem } from '@/lib/queries';
 export const dynamic = 'force-dynamic';
 
 export default async function InboxPage() {
-  const actor = await resolveActor();
-  if (!actor) return <SignedOut />;
+  const resolved = await resolveActor();
+  if (!resolved) return <SignedOut />;
+  const { actor, viaFallback } = resolved;
 
   const items = await getInbox(actor.userId);
 
   return (
     <>
-      <IdentityBar actor={actor} active="inbox" inboxCount={items.length} />
+      <IdentityBar
+        actor={actor}
+        active="inbox"
+        inboxCount={items.length}
+        viaFallback={viaFallback}
+      />
 
       <main className="mx-auto flex w-full max-w-[820px] flex-1 flex-col gap-4 px-6 py-10">
         <div className="flex items-baseline gap-3">
