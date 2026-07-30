@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "providers": {
+    "auth0": {
+      "name": "Auth0"
+    }
+  },
+  "resources": {}
+}
