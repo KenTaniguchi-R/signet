@@ -2,6 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  EventNotInOrgError,
   spendApprovalRule,
   buildApprovalRows,
   persistApprovalRequests,
@@ -11,6 +12,33 @@ import {
 } from './spend.ts';
 import type { PolicyDecision } from '../policy.ts';
 import type { Actor } from '../actor.ts';
+
+describe('EventNotInOrgError', () => {
+  test('is an Error subclass', () => {
+    const err = new EventNotInOrgError('event-1', 'org-1');
+    assert.ok(err instanceof Error);
+    assert.ok(err instanceof EventNotInOrgError);
+  });
+
+  test('sets the name property to EventNotInOrgError', () => {
+    const err = new EventNotInOrgError('event-1', 'org-1');
+    assert.equal(err.name, 'EventNotInOrgError');
+  });
+
+  test('includes eventId and orgId in the message', () => {
+    const err = new EventNotInOrgError('event-abc', 'org-xyz');
+    assert.ok(err.message.includes('event-abc'));
+    assert.ok(err.message.includes('org-xyz'));
+  });
+
+  test('instanceof discriminates from a plain Error with the same message', () => {
+    const typedErr = new EventNotInOrgError('event-1', 'org-1');
+    const plainErr = new Error(`Event event-1 does not belong to org org-1`);
+
+    assert.ok(typedErr instanceof EventNotInOrgError);
+    assert.ok(!(plainErr instanceof EventNotInOrgError));
+  });
+});
 
 const lineItemId = 'c0ffee00-0000-4000-8000-000000000000';
 

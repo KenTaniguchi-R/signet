@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { runSpendPhase } from '@/lib/agent/spend';
+import { EventNotInOrgError, runSpendPhase } from '@/lib/agent/spend';
 import { resolveActor } from '@/lib/dev-actor';
 
 export const runtime = 'nodejs';
@@ -40,15 +40,10 @@ export async function POST(
     const result = await runSpendPhase({ actor, eventId: id });
     return NextResponse.json(result, { status: 200 });
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : 'Spend phase failed.';
-
-    // runSpendPhase throws when the event doesn't belong to the actor's org.
-    // Return 404 for both "not found" and "wrong org" to avoid leaking whether
-    // an event exists in another tenant.
-    if (
-      message.includes('does not belong to org') ||
-      message.includes('Event') && message.includes('does not belong')
-    ) {
+    // runSpendPhase throws EventNotInOrgError when the event doesn't belong to
+    // the actor's org. Return 404 for both "not found" and "wrong org" to avoid
+    // leaking whether an event exists in another tenant.
+    if (cause instanceof EventNotInOrgError) {
       return NextResponse.json(
         { error: 'Event not found' },
         { status: 404 },
@@ -56,6 +51,7 @@ export async function POST(
     }
 
     // Any other error is a 500.
+    const message = cause instanceof Error ? cause.message : 'Spend phase failed.';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

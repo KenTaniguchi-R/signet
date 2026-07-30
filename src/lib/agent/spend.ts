@@ -10,6 +10,17 @@ import { signetModel } from './model.ts';
 import { type SpendInput, spendInput } from './schema.ts';
 
 /**
+ * Thrown when an event does not belong to the requesting actor's organization.
+ * Used to distinguish org-boundary violations from other errors in route handlers.
+ */
+export class EventNotInOrgError extends Error {
+  constructor(eventId: string, orgId: string) {
+    super(`Event ${eventId} does not belong to org ${orgId}`);
+    this.name = 'EventNotInOrgError';
+  }
+}
+
+/**
  * What the gate and the persist path both need to know about a line item to
  * route it: its real cost and reversibility. Nothing the model said about
  * itself — see CRITICAL 1.
@@ -289,7 +300,7 @@ export async function runSpendPhase(args: {
     .limit(1);
 
   if (!event) {
-    throw new Error(`Event ${args.eventId} does not belong to org ${args.actor.orgId}`);
+    throw new EventNotInOrgError(args.eventId, args.actor.orgId);
   }
 
   const items = await db
