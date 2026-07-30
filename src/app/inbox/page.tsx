@@ -1,4 +1,5 @@
 import { SignedOut } from '@/app/SignedOut';
+import { DecisionButtons } from '@/components/DecisionButtons';
 import { IdentityBar } from '@/components/IdentityBar';
 import { ROLE_LABEL, SEAL_INK } from '@/components/Seal';
 import { StatusPill } from '@/components/StatusPill';
@@ -77,25 +78,7 @@ function ApprovalCard({ item, approverName }: { item: InboxItem; approverName: s
         )}
       </dl>
 
-      <div className="flex gap-2.5 pt-0.5">
-        {/*
-          The label names the person. "Approve" alone is ambiguous on a shared
-          screen, and whose authority is being exercised is the entire point.
-          Wired to POST /api/approvals/[id]/approve when that route lands.
-        */}
-        <button
-          type="button"
-          className="rounded-sm bg-accent px-4.5 py-2.5 text-[0.8125rem] font-semibold text-white transition-transform active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          Approve as {approverName}
-        </button>
-        <button
-          type="button"
-          className="rounded-sm border border-rule px-4.5 py-2.5 text-[0.8125rem] font-semibold text-ink-muted transition-transform active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          Decline
-        </button>
-      </div>
+      <DecisionButtons approvalId={item.approvalId} approverName={approverName} />
     </article>
   );
 }

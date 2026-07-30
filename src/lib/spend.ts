@@ -1,5 +1,7 @@
 import Stripe from 'stripe';
 
+import type { SpendRail } from '../db/schema.ts';
+
 import { stripe } from './stripe.ts';
 
 /**
@@ -28,7 +30,7 @@ import { stripe } from './stripe.ts';
  * this file starts issuing real cards with no edit.
  */
 
-export type SpendRail = 'issuing_card' | 'payment_intent';
+export type { SpendRail };
 
 /** The approver, as resolved by the harness from the policy table. */
 export interface Approver {

@@ -25,6 +25,16 @@ export type LineItemStatus =
 
 export type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
+/**
+ * Which rail actually moved the money.
+ *
+ * `issuing_card` is the product: a real virtual card in the approver's name.
+ * `payment_intent` is the documented fallback used while Issuing card creation
+ * is blocked on this Stripe account. Persisted per line item so the UI can say
+ * which one happened rather than implying every purchase used a card.
+ */
+export type SpendRail = 'issuing_card' | 'payment_intent';
+
 export const orgs = pgTable('orgs', {
   id: uuid('id').primaryKey().defaultRandom(),
   auth0OrgId: text('auth0_org_id').notNull().unique(),
@@ -79,6 +89,15 @@ export const lineItems = pgTable('line_items', {
   stripeCardholderId: text('stripe_cardholder_id'),
   stripeCardId: text('stripe_card_id'),
   stripeAuthorizationId: text('stripe_authorization_id'),
+  /** Which rail actually moved the money. Surfaced in the UI — see `simulated`. */
+  spendRail: text('spend_rail').$type<SpendRail>(),
+  /** `ic_…` on the card rail, `pi_…` on the fallback. */
+  chargeRef: text('charge_ref'),
+  /**
+   * True when the charge is a PaymentIntent standing in for a card swipe.
+   * Persisted so the demo can state the limitation instead of hiding it.
+   */
+  simulated: boolean('simulated'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
