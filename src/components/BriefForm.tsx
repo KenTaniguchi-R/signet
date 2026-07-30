@@ -22,10 +22,21 @@ import { useState } from 'react';
  */
 const DEFAULT_TITLE = 'Built Different: Auth0 x Stripe, Okta HQ SF';
 
+/**
+ * A value, not a placeholder. The presenter should be able to land on the page
+ * and hit one button; typing 300 characters on stage is the failure mode this
+ * page exists to remove. Still editable — retype it to show the agent
+ * re-planning against a different brief.
+ */
+const DEFAULT_BRIEF =
+  'A one-day hackathon at our SF office. We need the floor, lunch, drinks, AV ' +
+  'for a demo stage, and prizes for three placements. 8 vegetarian and 3 gluten ' +
+  'free. Building access opens at noon, so catering has to arrive after that.';
+
 export function BriefForm({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [title, setTitle] = useState(DEFAULT_TITLE);
-  const [brief, setBrief] = useState('');
+  const [brief, setBrief] = useState(DEFAULT_BRIEF);
   const [budget, setBudget] = useState('5000');
   const [headcount, setHeadcount] = useState('60');
   const [state, setState] = useState<'idle' | 'planning'>('idle');
@@ -58,7 +69,13 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
         );
       }
 
-      setBrief('');
+      /*
+       * To the plan, not back to an empty form. The route returns the new
+       * `eventId` but we deliberately ignore it: `/` re-reads the latest event
+       * from the DB, which is the same path a hard refresh takes, so there is
+       * one code path to trust on stage rather than two.
+       */
+      router.push('/');
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Planning failed.');
@@ -118,8 +135,7 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           disabled={planning}
-          placeholder="A one-day hackathon at our SF office. We need the floor, lunch, drinks, AV for a demo stage, and prizes for three placements. 8 vegetarian and 3 gluten free. Building access opens at noon, so catering has to arrive after that."
-          className="resize-y rounded-sm border border-rule bg-paper px-3.5 py-3 text-[0.9375rem] leading-relaxed text-ink placeholder:text-ink-faint focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-60"
+          className="resize-y rounded-sm border border-rule bg-paper px-3.5 py-3 text-[0.9375rem] leading-relaxed text-ink focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-60"
         />
       </div>
 
