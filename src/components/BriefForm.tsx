@@ -33,7 +33,7 @@ const DEFAULT_BRIEF =
   'for a demo stage, and prizes for three placements. 8 vegetarian and 3 gluten ' +
   'free. Building access opens at noon, so catering has to arrive after that.';
 
-export function BriefForm({ compact = false }: { compact?: boolean }) {
+export function BriefForm() {
   const router = useRouter();
   const [title, setTitle] = useState(DEFAULT_TITLE);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
@@ -95,19 +95,15 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
   return (
     <form
       onSubmit={onSubmit}
-      className={`flex flex-col gap-4 rounded-sm border border-rule bg-surface ${
-        compact ? 'p-5' : 'px-6 py-7'
-      }`}
+      className="flex flex-col gap-4 rounded-sm border border-rule bg-surface px-6 py-7"
     >
-      {!compact && (
-        <div className="flex flex-col gap-1.5">
-          <h2 className="font-serif text-2xl tracking-[-0.01em]">What are you planning?</h2>
-          <p className="max-w-[58ch] text-sm leading-relaxed text-ink-muted">
-            The agent decomposes this into line items under the budget. Anything a policy rule
-            stops is routed to the person who holds authority over it.
-          </p>
-        </div>
-      )}
+      <div className="flex flex-col gap-1.5">
+        <h2 className="font-serif text-2xl tracking-[-0.01em]">What are you planning?</h2>
+        <p className="max-w-[58ch] text-sm leading-relaxed text-ink-muted">
+          The agent decomposes this into line items under the budget. Anything a policy rule
+          stops is routed to the person who holds authority over it.
+        </p>
+      </div>
 
       <div className="flex flex-col gap-2">
         <label htmlFor="title" className="font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint">
@@ -131,7 +127,7 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
         <textarea
           id="brief"
           name="brief"
-          rows={compact ? 3 : 4}
+          rows={4}
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           disabled={planning}

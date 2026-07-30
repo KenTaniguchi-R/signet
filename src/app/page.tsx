@@ -1,5 +1,7 @@
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+
 import { BoundaryLog } from '@/components/BoundaryLog';
-import { BriefForm } from '@/components/BriefForm';
 import { ExecuteSpend } from '@/components/ExecuteSpend';
 import { IdentityBar } from '@/components/IdentityBar';
 import { PlanTable } from '@/components/PlanTable';
@@ -26,6 +28,13 @@ export default async function PlanPage() {
       ])
     : [[], { entries: [], names: {} }];
 
+  /*
+   * Nothing to show is not an empty state here — the brief has its own page.
+   * `redirect` throws NEXT_REDIRECT and is typed `never`, so it both narrows
+   * `event` to non-null below and must stay outside any try/catch.
+   */
+  if (!event || rows.length === 0) redirect('/events/new');
+
   // `proposed` means the plan phase wrote the row and the spend phase has not
   // yet been asked to commit it — the only state where beat 2 has work to do.
   const proposedCount = rows.filter((row) => row.status === 'proposed').length;
@@ -40,34 +49,30 @@ export default async function PlanPage() {
       />
 
       <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-5 px-6 py-10">
-        {event && rows.length > 0 ? (
-          <>
-            <PlanTable rows={rows} title={event.title} budgetCents={event.budgetCents} />
+        <PlanTable rows={rows} title={event.title} budgetCents={event.budgetCents} />
 
-            {/*
-              Beat 2. Only while something is still `proposed` — once every item
-              is routed or settled the button has nothing left to do and would
-              read as an unfinished step on stage.
-            */}
-            {proposedCount > 0 && (
-              <ExecuteSpend eventId={event.id} proposedCount={proposedCount} />
-            )}
-
-            <BoundaryLog entries={boundary.entries} names={boundary.names} />
-
-            {/* Native disclosure: no JS, and it stays shut during the demo. */}
-            <details className="group">
-              <summary className="w-fit cursor-pointer list-none rounded-sm px-2.5 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-                Plan another event
-              </summary>
-              <div className="pt-3">
-                <BriefForm compact />
-              </div>
-            </details>
-          </>
-        ) : (
-          <BriefForm />
+        {/*
+          Beat 2. Only while something is still `proposed` — once every item
+          is routed or settled the button has nothing left to do and would
+          read as an unfinished step on stage.
+        */}
+        {proposedCount > 0 && (
+          <ExecuteSpend eventId={event.id} proposedCount={proposedCount} />
         )}
+
+        <BoundaryLog entries={boundary.entries} names={boundary.names} />
+
+        {/*
+          A link, not a disclosure. The brief has an address now, and an
+          expandable second copy of the form under the plan would put two
+          briefs on one screen.
+        */}
+        <Link
+          href="/events/new"
+          className="w-fit rounded-sm px-2.5 py-1.5 font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Plan another event
+        </Link>
       </main>
     </>
   );
