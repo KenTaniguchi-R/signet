@@ -3,7 +3,41 @@
   "providers": {
     "auth0": {
       "name": "Auth0"
+    },
+    "neon": {
+      "name": "Neon"
     }
   },
-  "resources": {}
+  "resources": {
+    "auth0-client": {
+      "name": "auth0-client",
+      "providerName": "Auth0",
+      "serviceId": "client"
+    },
+    "auth0-client-2": {
+      "name": "auth0-client-2",
+      "providerName": "Auth0",
+      "serviceId": "client"
+    },
+    "auth0-plan": {
+      "name": "auth0-plan",
+      "providerName": "Auth0",
+      "serviceId": "free"
+    },
+    "auth0-plan-2": {
+      "name": "auth0-plan-2",
+      "providerName": "Auth0",
+      "serviceId": "free"
+    },
+    "neon-plan": {
+      "name": "neon-plan",
+      "providerName": "Neon",
+      "serviceId": "free"
+    },
+    "neon-postgres": {
+      "name": "neon-postgres",
+      "providerName": "Neon",
+      "serviceId": "postgres"
+    }
+  }
 }

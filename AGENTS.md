@@ -111,6 +111,8 @@ ai@7                 # ESM-only, provider spec v4
 | Meter event `400 duplicate_meter_event` | Hard error, not a silent no-op. Catch that specific code on retry paths |
 | Meter event `409` | Concurrent events on the same customer+meter. **Emit sequentially — never `Promise.all`.** All 12 line items share one customer and one meter |
 | Issuing card won't activate | Cardholder missing `individual.card_issuing.user_terms_acceptance.date` + `.ip` and first/last name → `requirements.past_due`. Card `status` also defaults to `inactive` |
+| `parameter_missing: The v2 financial account id must be specified` | `issuing.cards.create` now **requires `financial_account_v2`**. Use `STRIPE_FINANCIAL_ACCOUNT_ID`. The old Treasury param was `financial_account` (singular) — not the same thing. build-notes §5 trap 3 |
+| `You cannot create a new card for FinancialAccount … status is pending` | The `card_issuing` capability isn't active. Check `settings.card_issuing.tos_acceptance.date`, `details_submitted`, and `capabilities.card_issuing` on `/v1/accounts/{id}` — **not** the FinancialAccount. Fixed only by finishing the Dashboard Issuing form; it does not resolve by waiting. build-notes §5 trap 3b |
 
 Use Neon's **pooled** connection string for the app (serverless-friendly); the direct one is for migrations.
 
