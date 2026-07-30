@@ -62,6 +62,8 @@ export async function settleLineItem(input: SettleInput): Promise<SettleResult> 
       stripeCardId: result.cardId,
       spendRail: result.rail,
       chargeRef: result.chargeRef,
+      cardLast4: result.last4,
+      cardExp: result.exp,
       simulated: result.simulated,
     })
     .where(eq(lineItems.id, lineItemId));
@@ -82,6 +84,7 @@ export async function settleLineItem(input: SettleInput): Promise<SettleResult> 
       simulated: result.simulated,
       cardholderId: result.cardholderId,
       cardId: result.cardId,
+      cardLast4: result.last4,
       chargeRef: result.chargeRef,
     },
   });

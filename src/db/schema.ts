@@ -28,12 +28,20 @@ export type ApprovalStatus = 'pending' | 'approved' | 'declined';
 /**
  * Which rail actually moved the money.
  *
- * `issuing_card` is the product: a real virtual card in the approver's name.
- * `payment_intent` is the documented fallback used while Issuing card creation
- * is blocked on this Stripe account. Persisted per line item so the UI can say
- * which one happened rather than implying every purchase used a card.
+ * `issuing_card`   — the product: a real Stripe Issuing virtual card in the
+ *                    approver's name. Used automatically the moment this Stripe
+ *                    account can issue one.
+ * `simulated_card` — a clearly-labelled stand-in card presented on top of a real
+ *                    cardholder and a real PaymentIntent, used while Issuing is
+ *                    blocked on this sandbox. Sanctioned by Stripe staff at the
+ *                    event on 2026-07-30 because the account's FinancialAccount
+ *                    is stuck `pending`. NEVER present this as a real card.
+ * `payment_intent` — money moved, no card shown at all.
+ *
+ * Persisted per line item so the UI states which one happened rather than
+ * implying every purchase rode a real virtual card.
  */
-export type SpendRail = 'issuing_card' | 'payment_intent';
+export type SpendRail = 'issuing_card' | 'simulated_card' | 'payment_intent';
 
 export const orgs = pgTable('orgs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -93,6 +101,10 @@ export const lineItems = pgTable('line_items', {
   spendRail: text('spend_rail').$type<SpendRail>(),
   /** `ic_…` on the card rail, `pi_…` on the fallback. */
   chargeRef: text('charge_ref'),
+  /** Last four of the card shown for this purchase, real or simulated. */
+  cardLast4: text('card_last4'),
+  /** `MM/YY`, for rendering the card face. */
+  cardExp: text('card_exp'),
   /**
    * True when the charge is a PaymentIntent standing in for a card swipe.
    * Persisted so the demo can state the limitation instead of hiding it.

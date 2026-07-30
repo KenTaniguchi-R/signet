@@ -57,9 +57,14 @@ export interface SpendResult {
   cardholderName: string;
   cardId: string | null;
   last4: string | null;
+  /** `MM/YY`, for rendering the card face. Null when no card is shown. */
+  exp: string | null;
   /** `ic_…` on the card rail, `pi_…` on the fallback. */
   chargeRef: string;
-  /** True when the charge is a PaymentIntent standing in for a card swipe. */
+  /**
+   * True when the card shown is a stand-in rather than a real Stripe Issuing
+   * card. UI MUST surface this — never render a simulated card as a real one.
+   */
   simulated: boolean;
 }
 
@@ -168,6 +173,40 @@ async function tryIssueCard(
 }
 
 /**
+ * Builds the stand-in card shown when Stripe cannot issue a real one.
+ *
+ * This exists because Issuing card creation is blocked on this sandbox — the
+ * FinancialAccount is stuck `pending` and cannot be funded (no financial
+ * address, `unsupported_currency: usd`). Stripe staff at the event confirmed on
+ * 2026-07-30 that presenting a mimicked card is acceptable in that situation.
+ *
+ * Three deliberate properties:
+ *
+ *  - The PAN is Stripe's canonical test BIN (4242 42…), so the number can never
+ *    be mistaken for, or used as, a live card.
+ *  - It is DETERMINISTIC in the line item id. A retry shows the same card
+ *    rather than appearing to issue a second one.
+ *  - It is bound to a REAL Stripe cardholder id. The identity on the card is
+ *    genuine; only the card body is synthetic.
+ *
+ * Anything rendering this MUST label it as simulated — `SpendResult.simulated`
+ * is true on this path and `rail` is `simulated_card`.
+ */
+export function simulateCard(lineItemId: string): { last4: string; exp: string } {
+  // FNV-1a. Deterministic and dependency-free; this is a display value, not a
+  // security primitive.
+  let hash = 0x811c9dc5;
+  for (const ch of lineItemId) {
+    hash ^= ch.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  const last4 = String(hash % 10_000).padStart(4, '0');
+  // A fixed, obviously-future expiry. Not derived from the clock, so the card
+  // face is stable across a demo that spans midnight.
+  return { last4, exp: '04/29' };
+}
+
+/**
  * Executes the spend under the approver's identity and returns what actually
  * happened. Callers must persist `rail` and `simulated` — the demo states the
  * limitation out loud rather than hiding it.
@@ -189,6 +228,7 @@ export async function executeSpend(req: SpendRequest): Promise<SpendResult> {
       cardholderName: cardholder.name,
       cardId: card.id,
       last4: card.last4,
+      exp: `${String(card.exp_month).padStart(2, '0')}/${String(card.exp_year).slice(-2)}`,
       chargeRef: card.id,
       simulated: false,
     };
@@ -196,7 +236,7 @@ export async function executeSpend(req: SpendRequest): Promise<SpendResult> {
 
   // Fallback rail. The approver still owns this charge: their cardholder id,
   // their user id and their name are on the PaymentIntent, so the audit trail
-  // still resolves to a real human.
+  // still resolves to a real human. Only the card face is synthetic.
   const intent = await stripe.paymentIntents.create({
     amount: amountCents,
     currency: 'usd',
@@ -207,16 +247,20 @@ export async function executeSpend(req: SpendRequest): Promise<SpendResult> {
       signet_approver_user_id: approver.userId,
       signet_approver_name: approver.displayName,
       signet_cardholder_id: cardholder.id,
-      signet_rail: 'payment_intent_fallback',
+      signet_rail: 'simulated_card',
+      signet_card_is_simulated: 'true',
     },
   });
 
+  const simulated = simulateCard(lineItemId);
+
   return {
-    rail: 'payment_intent',
+    rail: 'simulated_card',
     cardholderId: cardholder.id,
     cardholderName: cardholder.name,
     cardId: null,
-    last4: null,
+    last4: simulated.last4,
+    exp: simulated.exp,
     chargeRef: intent.id,
     simulated: true,
   };
