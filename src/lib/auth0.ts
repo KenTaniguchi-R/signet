@@ -16,4 +16,10 @@ export const auth0 = new Auth0Client({
     scope: process.env.AUTH0_SCOPE,
     organization: process.env.AUTH0_ORG_ID,
   },
+  /**
+   * Mounts GET /auth/connect — the Connected Accounts flow that links a
+   * third-party account into Token Vault. Off by default in v4, which 404s the
+   * route rather than erroring, so the cause is not obvious.
+   */
+  enableConnectAccountEndpoint: true,
 });

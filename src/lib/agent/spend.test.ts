@@ -9,6 +9,7 @@ import {
   type ApprovalRow,
   type LineItemPolicyFacts,
   type PolicyRowLookup,
+  type PersistApprovalRequestsDeps,
 } from './spend.ts';
 import type { PolicyDecision } from '../policy.ts';
 import type { Actor } from '../actor.ts';
@@ -49,9 +50,16 @@ const base = {
   rationale: 'x',
 };
 
-/** A `PolicyRowLookup` that always returns the same fixed row (or none). */
+/**
+ * A `PolicyRowLookup` keyed on the id it is given, returning `row` only when
+ * asked for `lineItemId` (the fixture's canonical id) and `null` for anything
+ * else — including anything falsy/empty. FIX 4: the previous version ignored
+ * its `lineItemId` argument entirely, so a gate that looked up the WRONG id
+ * would still pass every test in this describe block; this version fails
+ * closed on a wrong id the same way `defaultPolicyRowLookup` would.
+ */
 function fixedLookup(row: LineItemPolicyFacts | null): PolicyRowLookup {
-  return async () => row;
+  return async (requestedId) => (requestedId === lineItemId ? row : null);
 }
 
 describe('spendApprovalRule', () => {
@@ -189,7 +197,16 @@ describe('persistApprovalRequests', () => {
     role: 'member',
   };
 
-  test('a cross-event lineItemId is skipped, logged, and creates zero rows', async () => {
+  // FIX 4: renamed from "a cross-event lineItemId is skipped, logged, and
+  // creates zero rows" — the injected `lineItemLookup` below returned `null`
+  // unconditionally, without inspecting `eventId`, so the original test only
+  // proved the null branch of `persistApprovalRequests` behaves correctly.
+  // It said nothing about scoping: a lookup that ignored `eventId` entirely
+  // (and so could leak a line item across events) would have passed just as
+  // well. This version asserts the lookup actually receives the `eventId`
+  // that was passed in, so a lookup that dropped or mangled the scope
+  // argument would fail here even though it still returns `null`.
+  test('an unverified lineItemId is skipped, logged, and creates zero rows — the lookup receives the scoping eventId', async () => {
     const logged: unknown[] = [];
 
     const result = await persistApprovalRequests(
@@ -200,7 +217,11 @@ describe('persistApprovalRequests', () => {
         input: { ...base, amountCents: 18000, reversible: true },
       },
       {
-        lineItemLookup: async () => null,
+        lineItemLookup: async (requestedLineItemId, requestedEventId) => {
+          assert.equal(requestedLineItemId, lineItemId);
+          assert.equal(requestedEventId, 'event-1');
+          return null;
+        },
         log: async (logArgs) => {
           logged.push(logArgs);
         },
@@ -209,6 +230,40 @@ describe('persistApprovalRequests', () => {
         },
         markAwaitingApproval: async () => {
           throw new Error('must not touch line item status for an unverified line item');
+        },
+      },
+    );
+
+    assert.deepEqual(result, { created: 0, skipped: [lineItemId] });
+    assert.equal(logged.length, 1);
+  });
+
+  test('a verified row that does not actually require approval is logged and skipped, never written — Fix 3 fail-loud guard', async () => {
+    // This branch should be unreachable in production: `persistApprovalRequests`
+    // only runs after the tool-approval gate already halted on this same row,
+    // which only happens when `resolvePolicy` said approval was required.
+    // This test exercises it directly anyway, since it's easy to construct via
+    // the injected `lineItemLookup` and it's the exact code this fix added.
+    const logged: unknown[] = [];
+
+    const result = await persistApprovalRequests(
+      {
+        actor,
+        eventId: 'event-1',
+        approvalId: 'appr-z',
+        input: { ...base, amountCents: 100, reversible: true },
+      },
+      {
+        // $1.00, reversible — well under the auto-approve floor.
+        lineItemLookup: async () => ({ id: lineItemId, amountCents: 100, reversible: true }),
+        log: async (logArgs) => {
+          logged.push(logArgs);
+        },
+        writeApprovalRows: async () => {
+          throw new Error('must not write approval rows when no approval is required');
+        },
+        markAwaitingApproval: async () => {
+          throw new Error('must not touch line item status when no approval is required');
         },
       },
     );
@@ -258,5 +313,64 @@ describe('persistApprovalRequests', () => {
     );
     assert.equal(result.created, 2);
     assert.deepEqual(result.skipped, []);
+  });
+
+  test('a re-run after settlement does not regress a charged line item — Fix 1 regression guard', async () => {
+    // No DB in unit tests, so `defaultMarkAwaitingApproval`'s
+    // `eq(lineItems.status, 'proposed')` guard can't be exercised directly.
+    // This models it with an in-memory store via the injected
+    // `markAwaitingApproval`/`writeApprovalRows` seam: a status transition
+    // only applies from `proposed`, and the approvals unique index means a
+    // replay creates zero new rows for a role pair that already exists —
+    // exactly the shape `onConflictDoNothing()` produces in production.
+    let status: 'proposed' | 'awaiting_approval' | 'charged' = 'proposed';
+    const existingRoles = new Set<string>();
+
+    const deps: PersistApprovalRequestsDeps = {
+      lineItemLookup: async () => ({ id: lineItemId, amountCents: 280000, reversible: false }),
+      approverLookup: async (_orgId, role) => `${role}-uuid`,
+      writeApprovalRows: async (rows) => {
+        let created = 0;
+        for (const row of rows) {
+          if (!existingRoles.has(row.requiredRole)) {
+            existingRoles.add(row.requiredRole);
+            created++;
+          }
+        }
+        return created;
+      },
+      markAwaitingApproval: async () => {
+        if (status === 'proposed') status = 'awaiting_approval';
+      },
+      log: async () => {},
+    };
+
+    const args = {
+      actor,
+      eventId: 'event-1',
+      approvalId: 'appr-rerun',
+      input: { ...base, amountCents: 100, reversible: true }, // ignored — the row wins
+    };
+
+    // First run: finance and legal rows are created, the item moves to
+    // awaiting_approval.
+    const first = await persistApprovalRequests(args, deps);
+    assert.equal(first.created, 2);
+    assert.equal(status, 'awaiting_approval');
+
+    // Finance and legal approve; the harness charges the item — external to
+    // persistApprovalRequests, simulating `recordDecision`.
+    status = 'charged';
+
+    // Presenter re-runs the spend phase. The gate re-fires on the same
+    // lineItemId; both (lineItemId, requiredRole) pairs already exist.
+    const second = await persistApprovalRequests(args, deps);
+
+    assert.equal(second.created, 0, 'the replay must not create duplicate approval rows');
+    assert.equal(
+      status,
+      'charged',
+      'a charged line item must not be flipped back to awaiting_approval by a gate replay',
+    );
   });
 });

@@ -97,6 +97,43 @@ describe('resolveApprovers with injected lookup', () => {
   });
 });
 
+describe('the tenant boundary', () => {
+  // FIX 2: `dbApproverLookup`'s `eq(users.orgId, orgId)` predicate is what
+  // stops org A's approvals routing to org B's finance user — but there is
+  // no DB in unit tests, so this cannot exercise the real Drizzle query.
+  // NOTE: the predicate inside `dbApproverLookup` itself still needs an
+  // integration test (one that hits a real or test database) to be covered
+  // end to end. What this test CAN prove without a database is the half of
+  // the boundary that lives in the calling code: that `resolveApprovers`
+  // and `requireApprover` pass `orgId` through to the lookup unchanged,
+  // rather than dropping it, swapping it, or substituting some other value.
+  // If either function stopped forwarding `orgId` faithfully,
+  // `dbApproverLookup`'s org filter would be given the wrong org and every
+  // existing test in this file — which all inject an `ApproverLookup` that
+  // ignores its `orgId` argument — would stay green.
+  test('passes orgId through to the lookup unchanged — the tenant boundary', async () => {
+    const calls: { orgId: string; role: Role }[] = [];
+    const lookup: ApproverLookup = async (orgId, role) => {
+      calls.push({ orgId, role });
+      return `id-for-${orgId}-${role}`;
+    };
+
+    const roles: Role[] = ['finance', 'legal', 'ops'];
+    await resolveApprovers('org-tenant-A', roles, lookup);
+
+    assert.deepEqual(calls, [
+      { orgId: 'org-tenant-A', role: 'finance' },
+      { orgId: 'org-tenant-A', role: 'legal' },
+      { orgId: 'org-tenant-A', role: 'ops' },
+    ]);
+
+    calls.length = 0;
+    await requireApprover('org-tenant-B', 'legal', lookup);
+
+    assert.deepEqual(calls, [{ orgId: 'org-tenant-B', role: 'legal' }]);
+  });
+});
+
 describe('requireApprover with injected lookup', () => {
   test('returns the id when lookup succeeds', async () => {
     const lookup: ApproverLookup = async () => 'approver-uuid';

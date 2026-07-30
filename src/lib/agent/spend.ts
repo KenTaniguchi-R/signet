@@ -188,10 +188,19 @@ const defaultWriteApprovalRows = async (rows: ApprovalRow[]): Promise<number> =>
 };
 
 const defaultMarkAwaitingApproval = async (lineItemId: string): Promise<void> => {
+  // FIX 1: only a line item still in `proposed` may transition to
+  // `awaiting_approval`. Without this guard, a re-run of the spend phase
+  // (e.g. the presenter re-submitting after finance and legal already
+  // approved and `recordDecision` charged the item) re-fires this gate.
+  // `writeApprovalRows` inserts zero rows on the replay — the
+  // (lineItemId, requiredRole) row already exists and is `approved` — but
+  // this UPDATE ran unconditionally and flipped an already-`charged` row
+  // back to `awaiting_approval`, with its approval rows still `approved`
+  // and no way back to `/inbox`.
   await db
     .update(lineItems)
     .set({ status: 'awaiting_approval' })
-    .where(eq(lineItems.id, lineItemId));
+    .where(and(eq(lineItems.id, lineItemId), eq(lineItems.status, 'proposed')));
 };
 
 /** Injectable collaborators for {@link persistApprovalRequests}. Tests supply these to run without a database. */
@@ -248,6 +257,29 @@ export async function persistApprovalRequests(
     amountCents: lineItem.amountCents,
     reversible: lineItem.reversible,
   });
+
+  // FIX 3 (spec §7): fail loud rather than silently no-op. This branch is
+  // currently unreachable — `persistApprovalRequests` only runs when the
+  // tool-approval gate already halted the loop, which only happens when
+  // `resolvePolicy` said approval was required for this same row. But if
+  // that invariant ever breaks, `decision.approverRoles` would be `[]`,
+  // `buildApprovalRows` would return `[]`, zero rows would be written, and
+  // `markAwaitingApproval` would still fire — leaving the item permanently
+  // `awaiting_approval` with no approvals row: stuck and invisible in every
+  // inbox. Log and skip instead of writing.
+  if (!decision.requiresApproval) {
+    await log({
+      eventId: args.eventId,
+      kind: 'approval_not_required',
+      payload: args.input,
+      harnessInjected: {
+        reason: 'gate halted but resolvePolicy says no approval required',
+        ruleName: decision.ruleName,
+      },
+    });
+    skipped.push(args.input.lineItemId);
+    return { created: 0, skipped };
+  }
 
   const approverIds = await resolveApprovers(
     args.actor.orgId,
@@ -335,6 +367,10 @@ export async function runSpendPhase(args: {
       // A cross-event/cross-tenant lineItemId matches zero rows here and is
       // logged instead of silently flipping someone else's line item.
       const committed = spendInput.parse(part.input);
+      // FIX 1: same guard as `defaultMarkAwaitingApproval` — only a
+      // `proposed` row may transition. Currently harmless (nothing else
+      // writes `auto_approved`), but the shape is identical: an unguarded
+      // status flip on replay would silently regress a settled row.
       const rows = await db
         .update(lineItems)
         .set({ status: 'auto_approved' })
@@ -342,6 +378,7 @@ export async function runSpendPhase(args: {
           and(
             eq(lineItems.id, committed.lineItemId),
             eq(lineItems.eventId, args.eventId),
+            eq(lineItems.status, 'proposed'),
           ),
         )
         .returning({ id: lineItems.id });

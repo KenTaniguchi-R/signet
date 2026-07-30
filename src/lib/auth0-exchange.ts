@@ -12,16 +12,23 @@
  */
 
 export class TokenExchangeError extends Error {
-  constructor(
-    readonly connection: string,
-    readonly httpStatus: number,
-    readonly detail?: string,
-  ) {
+  // Declared and assigned explicitly rather than as constructor parameter
+  // properties: node's strip-only TypeScript mode cannot parse those, and it
+  // would break every test that transitively imports this file. Same shape as
+  // NoApproverForRoleError in policy-router.ts.
+  readonly connection: string;
+  readonly httpStatus: number;
+  readonly detail?: string;
+
+  constructor(connection: string, httpStatus: number, detail?: string) {
     super(
       `Token Vault exchange failed for "${connection}" (HTTP ${httpStatus})` +
         (detail ? `: ${detail}` : ''),
     );
     this.name = 'TokenExchangeError';
+    this.connection = connection;
+    this.httpStatus = httpStatus;
+    this.detail = detail;
   }
 }
 

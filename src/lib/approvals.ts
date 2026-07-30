@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { activity, approvals, db, events, lineItems, orgs, users, type Role } from '@/db';
 
 import type { Actor } from './actor';
+import { announceSpend, type SlackOutcome } from './slack';
 import { emitManagedSpendMeter, executeSpend, type SpendResult } from './spend';
 
 export type Decision = 'approved' | 'declined';
@@ -15,7 +16,13 @@ export type DecisionOutcome =
       state: 'awaiting_co_approver';
       remaining: { role: Role; displayName: string | null }[];
     }
-  | { ok: true; state: 'charged'; spend: SpendResult; metered: boolean };
+  | {
+      ok: true;
+      state: 'charged';
+      spend: SpendResult;
+      metered: boolean;
+      slack: SlackOutcome;
+    };
 
 /**
  * Records an approval decision and, once every required approver has signed,
@@ -37,8 +44,14 @@ export async function recordDecision(opts: {
   approvalId: string;
   decision: Decision;
   ip: string;
+  /**
+   * The approving session's Auth0 refresh token — the subject token for the
+   * RFC 8693 exchange that posts to Slack AS this approver. Optional: a missing
+   * one degrades to "no Slack post", never to a failed charge.
+   */
+  refreshToken?: string | null;
 }): Promise<DecisionOutcome> {
-  const { actor, approvalId, decision, ip } = opts;
+  const { actor, approvalId, decision, ip, refreshToken } = opts;
 
   const [row] = await db
     .select({ approval: approvals, lineItem: lineItems, event: events, org: orgs })
@@ -185,5 +198,50 @@ export async function recordDecision(opts: {
     },
   });
 
-  return { ok: true, state: 'charged', spend, metered };
+  // The Token Vault beat. Deliberately LAST and deliberately non-fatal: the
+  // money has already moved, so a Slack failure must degrade the announcement,
+  // never the charge. Every outcome is logged either way.
+  const slack = await announceSpend({
+    refreshToken,
+    channel: process.env.SLACK_CHANNEL_ID,
+    facts: {
+      approverName: actor.displayName,
+      approverRole: actor.role,
+      vendor: row.lineItem.vendor,
+      category: row.lineItem.category,
+      amountCents: row.lineItem.amountCents,
+      ruleName: row.approval.ruleName,
+      cardLast4: spend.last4,
+      simulated: spend.simulated,
+    },
+  }).catch((err: unknown) => ({
+    posted: false as const,
+    reason: err instanceof Error ? err.message : 'Slack announcement threw',
+  }));
+
+  await db.insert(activity).values({
+    eventId: row.event.id,
+    actorUserId: actor.userId,
+    kind: slack.posted ? 'slack.posted' : 'slack.skipped',
+    // What we asked Slack to do.
+    payloadJson: {
+      channel: process.env.SLACK_CHANNEL_ID ?? null,
+      vendor: row.lineItem.vendor,
+      amountCents: row.lineItem.amountCents,
+    },
+    // Whose identity carried it. `tokenKind: 'user'` is the claim the demo
+    // rests on — a bot token means the app posted, not the human.
+    harnessInjectedJson: slack.posted
+      ? {
+          connection: 'sign-in-with-slack',
+          tokenKind: slack.kind,
+          slackUserId: slack.slackUserId ?? null,
+          messageTs: slack.ts ?? null,
+          approverUserId: actor.userId,
+          approverName: actor.displayName,
+        }
+      : { skipped: slack.reason, approverUserId: actor.userId },
+  });
+
+  return { ok: true, state: 'charged', spend, metered, slack };
 }
