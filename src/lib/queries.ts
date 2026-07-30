@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import { approvals, db, events, lineItems, users, type Role } from '@/db';
+import { activity, approvals, db, events, lineItems, users, type Role } from '@/db';
 
 import type { PlanRow, SpentCard } from '@/components/PlanTable';
 import { resolvePolicy } from './policy';
@@ -185,6 +185,76 @@ export async function getInbox(userId: string): Promise<InboxItem[]> {
       .filter((s) => s.lineItemId === row.lineItemId && s.approverId !== userId)
       .map((s) => ({ role: s.role, displayName: s.displayName, status: s.status })),
   }));
+}
+
+export interface BoundaryEntry {
+  id: string;
+  kind: string;
+  actorName: string | null;
+  createdAt: Date;
+  /** What the MODEL supplied. */
+  payload: Record<string, unknown> | null;
+  /** What the HARNESS resolved. Nothing here came from the left. */
+  harnessInjected: Record<string, unknown> | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * The audit trail, oldest first.
+ *
+ * Invariant 6 made visible: `activity` keeps what the model said and what the
+ * harness resolved in separate columns, so the claim "nothing on the right came
+ * from the left" is something you can point at rather than assert.
+ */
+export async function getBoundaryLog(
+  eventId: string,
+  orgId: string,
+): Promise<{ entries: BoundaryEntry[]; names: Record<string, string> }> {
+  const rows = await db
+    .select({
+      id: activity.id,
+      kind: activity.kind,
+      createdAt: activity.createdAt,
+      payload: activity.payloadJson,
+      harnessInjected: activity.harnessInjectedJson,
+      actorName: users.displayName,
+    })
+    .from(activity)
+    .leftJoin(users, eq(users.id, activity.actorUserId))
+    .where(eq(activity.eventId, eventId))
+    .orderBy(activity.createdAt);
+
+  /*
+   * The audit row stores user ids, which is correct — a name is not a stable
+   * key. But a UUID on screen says nothing to someone watching the demo, and
+   * the person is the entire point. Resolve them for display only; the stored
+   * value is untouched.
+   */
+  const roster = await db
+    .select({ id: users.id, displayName: users.displayName, role: users.role })
+    .from(users)
+    .where(eq(users.orgId, orgId));
+
+  const names = Object.fromEntries(
+    roster.map((u) => [u.id, `${u.displayName}, ${u.role}`]),
+  ) as Record<string, string>;
+
+  return {
+    entries: rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      actorName: row.actorName,
+      createdAt: row.createdAt,
+      payload: asRecord(row.payload),
+      harnessInjected: asRecord(row.harnessInjected),
+    })),
+    names,
+  };
 }
 
 /** Badge count for the identity bar. */

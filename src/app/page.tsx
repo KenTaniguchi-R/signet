@@ -1,8 +1,9 @@
+import { BoundaryLog } from '@/components/BoundaryLog';
 import { BriefForm } from '@/components/BriefForm';
 import { IdentityBar } from '@/components/IdentityBar';
 import { PlanTable } from '@/components/PlanTable';
 import { resolveActor } from '@/lib/dev-actor';
-import { getInboxCount, getLatestEvent, getPlanRows } from '@/lib/queries';
+import { getBoundaryLog, getInboxCount, getLatestEvent, getPlanRows } from '@/lib/queries';
 
 import { SignedOut } from './SignedOut';
 
@@ -16,7 +17,9 @@ export default async function PlanPage() {
     getLatestEvent(actor.orgId),
     getInboxCount(actor.userId),
   ]);
-  const rows = event ? await getPlanRows(event.id) : [];
+  const [rows, boundary] = event
+    ? await Promise.all([getPlanRows(event.id), getBoundaryLog(event.id, actor.orgId)])
+    : [[], { entries: [], names: {} }];
 
   return (
     <>
@@ -26,6 +29,8 @@ export default async function PlanPage() {
         {event && rows.length > 0 ? (
           <>
             <PlanTable rows={rows} title={event.title} budgetCents={event.budgetCents} />
+
+            <BoundaryLog entries={boundary.entries} names={boundary.names} />
 
             {/* Native disclosure: no JS, and it stays shut during the demo. */}
             <details className="group">
