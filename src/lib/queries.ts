@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { activity, approvals, db, events, lineItems, users, type Role, type SpendRail } from '@/db';
 
@@ -51,7 +51,7 @@ function toSpentCard(
  * `line_items.status`. `resolvePolicy` is pure, so re-running it is free and
  * the table cannot drift from the rules the harness enforces.
  */
-export async function getPlanRows(eventId: string): Promise<PlanRow[]> {
+export async function getPlanRows(eventId: string, orgId: string): Promise<PlanRow[]> {
   const items = await db
     .select()
     .from(lineItems)
@@ -98,6 +98,25 @@ export async function getPlanRows(eventId: string): Promise<PlanRow[]> {
 
   const signerByLineItem = new Map(signed.map((s) => [s.lineItemId, s]));
 
+  // Role to person, read from the same table the policy router reads.
+  //
+  // Between the plan phase and the spend phase there are no `approvals` rows to
+  // join to, and every trace rendered "no user holds this role" for an org whose
+  // approvers are all present — the copy for "nobody has this role" standing in
+  // for "no row written yet". Ordering matches `dbApproverLookup` (oldest first,
+  // take one), so the name previewed here is the person who will actually be
+  // routed to, not a guess.
+  const roster = await db
+    .select({ role: users.role, displayName: users.displayName })
+    .from(users)
+    .where(eq(users.orgId, orgId))
+    .orderBy(asc(users.createdAt));
+
+  const nameByRole = new Map<Role, string>();
+  for (const person of roster) {
+    if (!nameByRole.has(person.role)) nameByRole.set(person.role, person.displayName);
+  }
+
   const byLineItem = new Map<string, { role: (typeof rows)[number]['role']; displayName: string | null }[]>();
   for (const row of rows) {
     const list = byLineItem.get(row.lineItemId) ?? [];
@@ -111,16 +130,18 @@ export async function getPlanRows(eventId: string): Promise<PlanRow[]> {
       reversible: item.reversible,
     });
 
-    // Prefer the persisted approvers; fall back to the roles policy names, so a
-    // plan renders correctly even before the spend phase has written approvals.
+    // Prefer the approver the approval row names; otherwise the roster's holder
+    // of that role. A persisted row with a null `required_approver_id` routes by
+    // role too (see approvals.ts), so the roster is the right answer there as
+    // well. `null` now means only what it says: this org has nobody in the role.
     const persisted = byLineItem.get(item.id);
-    const approvers =
-      persisted && persisted.length > 0
-        ? decision.approverRoles.map(
-            (role) =>
-              persisted.find((entry) => entry.role === role) ?? { role, displayName: null },
-          )
-        : decision.approverRoles.map((role) => ({ role, displayName: null }));
+    const approvers = decision.approverRoles.map((role) => ({
+      role,
+      displayName:
+        persisted?.find((entry) => entry.role === role)?.displayName ??
+        nameByRole.get(role) ??
+        null,
+    }));
 
     return {
       id: item.id,

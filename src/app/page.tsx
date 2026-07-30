@@ -20,7 +20,10 @@ export default async function PlanPage() {
     getInboxCount(actor.userId),
   ]);
   const [rows, boundary] = event
-    ? await Promise.all([getPlanRows(event.id), getBoundaryLog(event.id, actor.orgId)])
+    ? await Promise.all([
+        getPlanRows(event.id, actor.orgId),
+        getBoundaryLog(event.id, actor.orgId),
+      ])
     : [[], { entries: [], names: {} }];
 
   // `proposed` means the plan phase wrote the row and the spend phase has not
