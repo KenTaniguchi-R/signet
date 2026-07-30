@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 
 import { db, users } from '../db/index.ts';
 import type { Role } from '../db/schema.ts';
@@ -14,6 +14,28 @@ export class NoApproverForRoleError extends Error {
 }
 
 /**
+ * Signature for role-to-person lookup. Injectable for testing.
+ * Implementations must filter on BOTH orgId and role; filtering on role alone
+ * would cross tenant boundaries.
+ */
+export type ApproverLookup = (orgId: string, role: Role) => Promise<string | null>;
+
+/**
+ * The real lookup. Filters on BOTH orgId and role — role alone would cross tenants.
+ * Queries deterministically with a stable order.
+ */
+export const dbApproverLookup: ApproverLookup = async (orgId, role) => {
+  const [row] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.orgId, orgId), eq(users.role, role)))
+    .orderBy(asc(users.createdAt))
+    .limit(1);
+
+  return row?.id ?? null;
+};
+
+/**
  * Role to person. This is the lookup the model is structurally prevented from
  * doing: the approver's identity enters the system here and nowhere else.
  */
@@ -21,13 +43,7 @@ export async function resolveApprover(
   orgId: string,
   role: Role,
 ): Promise<string | null> {
-  const [row] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.orgId, orgId), eq(users.role, role)))
-    .limit(1);
-
-  return row?.id ?? null;
+  return dbApproverLookup(orgId, role);
 }
 
 /**
@@ -49,17 +65,22 @@ export async function resolveApprover(
 export async function resolveApprovers(
   orgId: string,
   roles: Role[],
+  lookup: ApproverLookup = dbApproverLookup,
 ): Promise<(string | null)[]> {
   const ids: (string | null)[] = [];
   for (const role of roles) {
-    ids.push(await resolveApprover(orgId, role));
+    ids.push(await lookup(orgId, role));
   }
   return ids;
 }
 
 /** Strict variant. Not used by this plan's paths — available for callers that need it. */
-export async function requireApprover(orgId: string, role: Role): Promise<string> {
-  const id = await resolveApprover(orgId, role);
+export async function requireApprover(
+  orgId: string,
+  role: Role,
+  lookup: ApproverLookup = dbApproverLookup,
+): Promise<string> {
+  const id = await lookup(orgId, role);
   if (!id) throw new NoApproverForRoleError(role, orgId);
   return id;
 }
