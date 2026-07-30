@@ -209,9 +209,10 @@ for (const part of result.content) {
   const lineItem = await db.findLineItem(input.lineItemId, eventId);
   if (!lineItem) { await logActivity({ kind: 'rejected_unknown_line_item', ... }); continue; }
 
-  const decision = resolvePolicy({                    // re-resolved, pure
-    amountCents: input.amountCents,
-    reversible: input.reversible,
+  // Route on the ROW, never on the model's numbers. See the note below.
+  const decision = resolvePolicy({
+    amountCents: lineItem.amountCents,
+    reversible: lineItem.reversible,
   });
   if (!decision.requiresApproval) { /* unreachable; log and skip */ }
 
@@ -230,6 +231,25 @@ for (const part of result.content) {
 ```
 
 Every `approvals` row is written from `resolvePolicy` plus a DB lookup. Nothing on that row originates in the model's output except the line item it points at, and that pointer is validated against the event first.
+
+### Route on the row, never on the model's numbers
+
+> **Corrected 2026-07-30 during execution.** Earlier drafts of this section re-resolved policy from `input.amountCents` / `input.reversible` — the values the *model* supplied. That was a real hole in the design, caught in review of Task 8, and it defeated the product's central claim.
+
+Verifying the `lineItemId` is necessary but not sufficient. A model that supplies a **valid** id alongside **false** figures still steers the outcome:
+
+| Model emits | Real row | Result under the old design |
+|---|---|---|
+| id=venue, `amountCents: 90000, reversible: true` | $2,800, irreversible | routes to `ops` alone instead of `finance` + `legal`; ops approves; the charge settles for the row's real $2,800 |
+| id=venue, `amountCents: 100` | $2,800, irreversible | `requiresApproval` is false — **no approval row is written and the gate never fires** |
+
+The model still cannot *name* a person. But it can choose which role gets asked, and it can skip the gate outright. Both move real money.
+
+The rule, in both the `toolApproval` gate and the persist loop: **the model names WHICH line item; the database says what that line item costs.** `resolvePolicy` receives `lineItem.amountCents` and `lineItem.reversible`, loaded from the row, always.
+
+This makes the gate asynchronous — it must load the row before deciding. `SingleToolApprovalFunction` returns `MaybePromiseLike`, so that is supported.
+
+The narrow `PolicyInput` from §6 limits the blast radius here but does not close it: it keeps `vendor` and `category` out of routing, and those were never the danger. `amountCents` and `reversible` are what the policy actually reads, and they have to come from the row.
 
 ### Activity logging
 
