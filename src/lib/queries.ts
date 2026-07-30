@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import { activity, approvals, db, events, lineItems, users, type Role } from '@/db';
+import { activity, approvals, db, events, lineItems, users, type Role, type SpendRail } from '@/db';
 
 import type { PlanRow, SpentCard } from '@/components/PlanTable';
 import { resolvePolicy } from './policy';
@@ -26,7 +26,12 @@ export async function getLatestEvent(orgId: string) {
  * moved under policy, not under a person, and the UI should not pretend it did.
  */
 function toSpentCard(
-  item: { cardLast4: string | null; cardExp: string | null },
+  item: {
+    cardLast4: string | null;
+    cardExp: string | null;
+    spendRail: SpendRail | null;
+    stripeCardholderId: string | null;
+  },
   signer: { displayName: string; role: Role } | undefined,
 ): SpentCard | null {
   if (!item.cardLast4 || !item.cardExp || !signer) return null;
@@ -35,6 +40,9 @@ function toSpentCard(
     role: signer.role,
     last4: item.cardLast4,
     exp: item.cardExp,
+    // Default to the honest rail. An unset column must never render as issued.
+    rail: item.spendRail ?? 'simulated_card',
+    cardholderId: item.stripeCardholderId,
   };
 }
 

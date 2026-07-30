@@ -1,4 +1,4 @@
-import type { LineItemStatus, Role } from '@/db';
+import type { LineItemStatus, Role, SpendRail } from '@/db';
 import { formatCategory, formatCents } from '@/lib/format';
 import type { PolicyDecision } from '@/lib/policy';
 
@@ -28,6 +28,10 @@ export interface SpentCard {
   role: Role;
   last4: string;
   exp: string;
+  /** Which rail moved the money. Decides what the card face may claim. */
+  rail: SpendRail;
+  /** `ich_…`. Real on every rail. */
+  cardholderId: string | null;
 }
 
 /**
@@ -170,6 +174,8 @@ function PlanRowGroup({ row, index }: { row: PlanRow; index: number }) {
                   last4={row.card.last4}
                   exp={row.card.exp}
                   limitCents={row.amountCents}
+                  rail={row.card.rail}
+                  cardholderId={row.card.cardholderId}
                 />
               </div>
             )}

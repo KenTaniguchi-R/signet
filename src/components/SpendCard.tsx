@@ -1,7 +1,35 @@
-import type { Role } from '@/db';
+import type { Role, SpendRail } from '@/db';
 import { formatCents } from '@/lib/format';
 
 import { ROLE_LABEL, Seal } from './Seal';
+
+/**
+ * What each rail is allowed to claim.
+ *
+ * schema.ts is explicit that `simulated_card` must NEVER be presented as a real
+ * card, and until now the face carried no rail at all — it looked identical
+ * whichever way the money moved. The honest version is also the stronger one:
+ * the cardholder IS a real Stripe object in the approver's name, and saying so
+ * while naming what is stood in turns the limitation into a provenance claim.
+ */
+const RAIL_NOTE: Record<SpendRail, { badge: string; tone: string; note: (holder: string) => string }> = {
+  issuing_card: {
+    badge: 'Issued',
+    tone: 'text-ok',
+    note: (holder) => `Stripe Issuing card on cardholder ${holder}. Stripe enforces the limit.`,
+  },
+  simulated_card: {
+    badge: 'Simulated',
+    tone: 'text-halt',
+    note: (holder) =>
+      `Cardholder ${holder} is real. The card face is a stand-in: Issuing is pending on this account, so settlement rode a PaymentIntent.`,
+  },
+  payment_intent: {
+    badge: 'No card',
+    tone: 'text-ink-faint',
+    note: (holder) => `Settled on a PaymentIntent against cardholder ${holder}.`,
+  },
+};
 
 /**
  * The card the money moved on.
@@ -23,6 +51,8 @@ export function SpendCard({
   last4,
   exp,
   limitCents,
+  rail,
+  cardholderId,
 }: {
   cardholderName: string;
   role: Role;
@@ -30,14 +60,27 @@ export function SpendCard({
   exp: string;
   /** The approved amount. Stripe enforces this as the card's all-time limit. */
   limitCents: number;
+  rail: SpendRail;
+  /** `ich_…`. Real on every rail, which is the point worth making. */
+  cardholderId: string | null;
 }) {
+  const provenance = RAIL_NOTE[rail];
+
   return (
-    <figure className="aspect-[1.586] w-full max-w-[27rem] rounded-sm border border-rule bg-surface p-6 shadow-[inset_0_1px_0_#fff,0_1px_2px_rgba(20,22,28,0.06),0_10px_24px_-16px_rgba(20,22,28,0.3)]">
+    <figure className="w-full max-w-[27rem]">
+    <div className="aspect-[1.586] w-full rounded-sm border border-rule bg-surface p-6 shadow-[inset_0_1px_0_#fff,0_1px_2px_rgba(20,22,28,0.06),0_10px_24px_-16px_rgba(20,22,28,0.3)]">
       <div className="flex h-full flex-col">
         <div className="flex items-baseline justify-between">
           <span className="font-serif text-[0.9375rem] tracking-[0.14em] text-ink">SIGNET</span>
-          <span className="font-mono text-[0.625rem] uppercase tracking-[0.13em] text-ink-faint">
-            Virtual · {ROLE_LABEL[role]}
+          {/*
+            The rail is stamped on the face, not buried in a footnote. A judge
+            reading this from three metres should never be able to mistake a
+            stand-in for an issued card.
+          */}
+          <span
+            className={`${provenance.tone} font-mono text-[0.625rem] uppercase tracking-[0.13em]`}
+          >
+            {provenance.badge} · {ROLE_LABEL[role]}
           </span>
         </div>
 
@@ -106,6 +149,11 @@ export function SpendCard({
           </div>
         </div>
       </div>
+    </div>
+
+    <figcaption className="pt-2 font-mono text-[0.6875rem] leading-relaxed text-ink-faint">
+      {provenance.note(cardholderId ?? 'unknown')}
+    </figcaption>
     </figure>
   );
 }
