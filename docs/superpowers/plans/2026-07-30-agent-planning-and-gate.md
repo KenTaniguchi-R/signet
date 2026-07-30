@@ -1173,21 +1173,27 @@ before use."
 
 ---
 
-### Task 9: Route handlers
+### Task 9: The spend route
 
-Two POST routes wiring the phases to HTTP. Next 16: `ctx.params` is a Promise.
+**Revised 2026-07-30 during execution.** This task originally created two routes. A concurrent writer already shipped `src/app/api/events/plan/route.ts` (commit `3c7f0a7`), wiring it to this plan's own `planEvent` and implementing spec §9's 422-plus-one-retry exactly. **Do not recreate or modify it.** Only the spend route remains.
 
 **Files:**
-- Create: `src/app/api/events/plan/route.ts`
 - Create: `src/app/api/events/[id]/spend/route.ts`
 
 **Interfaces:**
-- Consumes: `planEvent` (Task 6), `runSpendPhase` (Task 8), `getActor` from `src/lib/actor.ts`
-- Produces: `POST /api/events/plan`, `POST /api/events/[id]/spend`
+- Consumes: `runSpendPhase` (Task 8), `resolveActor` from `src/lib/dev-actor.ts`
+- Produces: `POST /api/events/[id]/spend`
 
-- [ ] **Step 1: Create the plan route**
+**Match the sibling route's conventions** — read `src/app/api/events/plan/route.ts` first:
+- `NextResponse.json(...)`, not bare `Response.json`
+- `resolveActor()` from `@/lib/dev-actor`, not `getActor()`. Its own comment explains the split: routes that set `approved_by` (approve/decline) must refuse anything but a real session, because that field *is* the security model. The spend route sets no authorization-bearing field — `required_approver_id` is resolved from the DB by role, and the actor supplies only `orgId` — so the dev fallback is acceptable, and it is already gated on `NODE_ENV !== 'production'` plus an explicit env var. Consistency with the sibling route beats a lone deviation here.
+- `@/` path aliases are correct in route handlers (they are not run under `node --test`)
 
-Create `src/app/api/events/plan/route.ts`:
+`runSpendPhase` throws when the event does not resolve within the actor's org. Return **404**, not 500 — the caller must not be able to distinguish "no such event" from "someone else's event", or the route becomes a cross-tenant existence oracle.
+
+- [ ] **Step 1 (SUPERSEDED — skip): the plan route**
+
+Already shipped by a concurrent writer. Left here so the step numbering matches the original plan. Reference implementation:
 
 ```ts
 import { NoObjectGeneratedError } from 'ai';
