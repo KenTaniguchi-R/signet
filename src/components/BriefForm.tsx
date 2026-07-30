@@ -6,20 +6,28 @@ import { useState } from 'react';
 /**
  * Demo beat 1: the brief goes in, the plan comes out.
  *
- * Posts to POST /api/events/plan, owned by the agent side. Contract:
+ * Posts to POST /api/events/plan, owned by the agent side. The body is exactly
+ * `PlanBrief` from src/lib/agent/plan.ts, so the route can hand it to
+ * `planEvent()` after authenticating the actor and validating:
  *
- *   request   { brief: string, budgetCents: number }
+ *   request   { title, budgetCents, headcount, notes }
  *   response  2xx on success (body unused — the page re-reads from the DB)
  *             non-2xx with { error: string } on failure
  *
- * The event title is derived server-side from `planOutput.summary` rather than
- * typed here, because every field on this form is a field the presenter has to
- * fill in live on stage.
+ * `headcount` is not decoration: the prompt makes venue capacity and catering
+ * size depend on it. `title` becomes events.title, which is notNull.
+ *
+ * Everything except the brief itself is prefilled, so the presenter types one
+ * field on stage and the other three are already correct.
  */
+const DEFAULT_TITLE = 'Built Different: Auth0 x Stripe, Okta HQ SF';
+
 export function BriefForm({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
+  const [title, setTitle] = useState(DEFAULT_TITLE);
   const [brief, setBrief] = useState('');
   const [budget, setBudget] = useState('5000');
+  const [headcount, setHeadcount] = useState('60');
   const [state, setState] = useState<'idle' | 'planning'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -33,8 +41,10 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          brief: brief.trim(),
+          title: title.trim(),
           budgetCents: Math.round(Number(budget) * 100),
+          headcount: Number(headcount),
+          notes: brief.trim(),
         }),
       });
 
@@ -58,7 +68,12 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
   }
 
   const planning = state === 'planning';
-  const canSubmit = brief.trim().length > 0 && Number(budget) > 0 && !planning;
+  const canSubmit =
+    brief.trim().length > 0 &&
+    title.trim().length > 0 &&
+    Number(budget) > 0 &&
+    Number(headcount) > 0 &&
+    !planning;
 
   return (
     <form
@@ -78,6 +93,21 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
       )}
 
       <div className="flex flex-col gap-2">
+        <label htmlFor="title" className="font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint">
+          Event
+        </label>
+        <input
+          id="title"
+          name="title"
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          disabled={planning}
+          className="rounded-sm border border-rule bg-paper px-3.5 py-2.5 text-[0.9375rem] text-ink focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-60"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
         <label htmlFor="brief" className="font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint">
           Brief
         </label>
@@ -88,7 +118,7 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
           value={brief}
           onChange={(e) => setBrief(e.target.value)}
           disabled={planning}
-          placeholder="A one-day hackathon for 60 people at our SF office. Need the floor, lunch, drinks, AV for a demo stage, and prizes for three placements. 8 vegetarian, 3 gluten free."
+          placeholder="A one-day hackathon at our SF office. We need the floor, lunch, drinks, AV for a demo stage, and prizes for three placements. 8 vegetarian and 3 gluten free. Building access opens at noon, so catering has to arrive after that."
           className="resize-y rounded-sm border border-rule bg-paper px-3.5 py-3 text-[0.9375rem] leading-relaxed text-ink placeholder:text-ink-faint focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-60"
         />
       </div>
@@ -108,6 +138,24 @@ export function BriefForm({ compact = false }: { compact?: boolean }) {
             onChange={(e) => setBudget(e.target.value)}
             disabled={planning}
             className="tnum w-36 rounded-sm border border-rule bg-paper px-3.5 py-2.5 font-mono text-[0.9375rem] text-ink focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-60"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label htmlFor="headcount" className="font-mono text-[0.6875rem] uppercase tracking-[0.13em] text-ink-faint">
+            Headcount
+          </label>
+          {/* Feeds a hard constraint: venue capacity and catering size. */}
+          <input
+            id="headcount"
+            name="headcount"
+            type="number"
+            min="1"
+            step="1"
+            value={headcount}
+            onChange={(e) => setHeadcount(e.target.value)}
+            disabled={planning}
+            className="tnum w-28 rounded-sm border border-rule bg-paper px-3.5 py-2.5 font-mono text-[0.9375rem] text-ink focus-visible:border-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent disabled:opacity-60"
           />
         </div>
 
