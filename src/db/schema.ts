@@ -58,6 +58,8 @@ export const events = pgTable('events', {
   title: text('title').notNull(),
   budgetCents: integer('budget_cents').notNull(),
   status: text('status').notNull().default('planning'),
+  /** Serialized ModelMessage[] from the spend call. Needed to resume after approval. */
+  messagesJson: jsonb('messages_json'),
   createdBy: uuid('created_by')
     .notNull()
     .references(() => users.id),
@@ -80,23 +82,27 @@ export const lineItems = pgTable('line_items', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const approvals = pgTable('approvals', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  lineItemId: uuid('line_item_id')
-    .notNull()
-    .references(() => lineItems.id),
-  /** AI SDK v7 tool-approval id — the handle used to resume the run. */
-  approvalId: text('approval_id').notNull(),
-  /** Resolved by the policy router. NEVER supplied by the model or the client. */
-  requiredRole: text('required_role').$type<Role>().notNull(),
-  requiredApproverId: uuid('required_approver_id').references(() => users.id),
-  ruleName: text('rule_name').notNull(),
-  status: text('status').$type<ApprovalStatus>().notNull().default('pending'),
-  /** Set from the SERVER SESSION on approve. Never from the request body. */
-  approvedBy: uuid('approved_by').references(() => users.id),
-  approvedAt: timestamp('approved_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+export const approvals = pgTable(
+  'approvals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    lineItemId: uuid('line_item_id')
+      .notNull()
+      .references(() => lineItems.id),
+    /** AI SDK v7 tool-approval id — the handle used to resume the run. */
+    approvalId: text('approval_id').notNull(),
+    /** Resolved by the policy router. NEVER supplied by the model or the client. */
+    requiredRole: text('required_role').$type<Role>().notNull(),
+    requiredApproverId: uuid('required_approver_id').references(() => users.id),
+    ruleName: text('rule_name').notNull(),
+    status: text('status').$type<ApprovalStatus>().notNull().default('pending'),
+    /** Set from the SERVER SESSION on approve. Never from the request body. */
+    approvedBy: uuid('approved_by').references(() => users.id),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex('approvals_item_role_idx').on(t.lineItemId, t.requiredRole)],
+);
 
 export const activity = pgTable('activity', {
   id: uuid('id').primaryKey().defaultRandom(),
