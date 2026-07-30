@@ -1,5 +1,6 @@
 import { BoundaryLog } from '@/components/BoundaryLog';
 import { BriefForm } from '@/components/BriefForm';
+import { ExecuteSpend } from '@/components/ExecuteSpend';
 import { IdentityBar } from '@/components/IdentityBar';
 import { PlanTable } from '@/components/PlanTable';
 import { resolveActor } from '@/lib/dev-actor';
@@ -22,6 +23,10 @@ export default async function PlanPage() {
     ? await Promise.all([getPlanRows(event.id), getBoundaryLog(event.id, actor.orgId)])
     : [[], { entries: [], names: {} }];
 
+  // `proposed` means the plan phase wrote the row and the spend phase has not
+  // yet been asked to commit it — the only state where beat 2 has work to do.
+  const proposedCount = rows.filter((row) => row.status === 'proposed').length;
+
   return (
     <>
       <IdentityBar
@@ -35,6 +40,15 @@ export default async function PlanPage() {
         {event && rows.length > 0 ? (
           <>
             <PlanTable rows={rows} title={event.title} budgetCents={event.budgetCents} />
+
+            {/*
+              Beat 2. Only while something is still `proposed` — once every item
+              is routed or settled the button has nothing left to do and would
+              read as an unfinished step on stage.
+            */}
+            {proposedCount > 0 && (
+              <ExecuteSpend eventId={event.id} proposedCount={proposedCount} />
+            )}
 
             <BoundaryLog entries={boundary.entries} names={boundary.names} />
 
