@@ -21,14 +21,9 @@ export default async function NewEventPage() {
 
   return (
     <>
-      {/*
-        `active="plan"` deliberately. The brief and the plan are one flow, and a
-        nav item that lights up differently between them would draw the room's
-        eye to the chrome at the exact moment the plan appears.
-      */}
       <IdentityBar
         actor={actor}
-        active="plan"
+        active="new"
         inboxCount={inboxCount}
         viaFallback={viaFallback}
       />

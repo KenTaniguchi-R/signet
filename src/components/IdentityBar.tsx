@@ -19,7 +19,7 @@ export function IdentityBar({
   viaFallback = false,
 }: {
   actor: Actor;
-  active: 'plan' | 'inbox';
+  active: 'new' | 'plan' | 'inbox';
   inboxCount: number;
   viaFallback?: boolean;
 }) {
@@ -59,6 +59,12 @@ export function IdentityBar({
       </div>
 
       <nav className="ml-auto flex items-center gap-1">
+        {/*
+          First, because it is where the demo starts. Reachable from /inbox
+          too, so the approver's window can begin a run without going via the
+          plan.
+        */}
+        <NavLink href="/events/new" label="New event" isActive={active === 'new'} />
         <NavLink href="/" label="Plan" isActive={active === 'plan'} />
         <NavLink
           href="/inbox"
