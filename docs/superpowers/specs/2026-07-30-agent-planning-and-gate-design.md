@@ -119,49 +119,63 @@ The spend tool's input is this schema plus `lineItemId: z.string().uuid()`.
 
 ## 6. Policy
 
-```ts
-export type PolicyDecision =
-  | { requiresApproval: false; ruleName: string }
-  | { requiresApproval: true; approverRoles: Role[]; ruleName: string };
+> **Amended 2026-07-30 14:0x.** `src/lib/policy.ts` and `src/lib/policy.test.ts` were written in parallel with this spec and are now the source of truth. This section was rewritten to describe the code that exists, not the code I proposed. The differences are listed at the end.
 
-export function resolvePolicy(input: LineItemIntent): PolicyDecision;
+```ts
+export interface PolicyInput {
+  amountCents: number;
+  reversible: boolean;
+}
+
+export interface PolicyDecision {
+  requiresApproval: boolean;
+  /** Every role listed must approve. Order is the order they are asked. */
+  approverRoles: Role[];
+  /** The rule that fired. Written to activity.harness_injected_json. */
+  ruleName: string;
+}
+
+export function resolvePolicy(input: PolicyInput): PolicyDecision;
 ```
 
-Rules are **additive, not first-match**. Every rule is evaluated; the required roles are the union of what matched.
+Branches, first match wins. Each branch names both roles and rule in one shot, so there is no name-joining and no set union to get wrong:
 
-| # | Condition | Adds | `ruleName` |
-|---|---|---|---|
-| 1 | `amountCents > 200_000` | `finance`, `legal` | `over_2000_requires_finance_and_legal` |
-| 2 | `!reversible` | `legal` | `irreversible_requires_legal` |
-| 3 | `20_000 <= amountCents <= 200_000` | `ops` | `over_200_requires_team_lead` |
-| — | nothing matched | — | `under_200_auto_approve` |
+| Condition | `approverRoles` | `ruleName` |
+|---|---|---|
+| `amountCents > 200_000`, reversible | `finance`, `legal` | `over_2000_finance_legal` |
+| `amountCents > 200_000`, irreversible | `finance`, `legal` | `irreversible_over_2000` |
+| `20_000 ≤ amountCents ≤ 200_000`, reversible | `ops` | `band_200_2000_team_lead` |
+| `20_000 ≤ amountCents ≤ 200_000`, irreversible | `ops`, `legal` | `irreversible_band_200_2000` |
+| `< 20_000`, irreversible | `legal` | `irreversible_requires_legal` |
+| `< 20_000`, reversible | — | `auto_approve_under_200` |
 
-`ruleName` on the decision is the matched names joined by `+`, so the audit trail records every reason, not just the first one.
+Non-integer, negative, or non-finite `amountCents` throws `RangeError`. A fractional amount silently landing in the auto-approve branch would be a hole; failing loudly is correct.
 
-First-match ordering was the obvious design and it is wrong here. The demo's venue item is **$2,800 and irreversible** — it matches rules 1 and 2 at once. Under first-match it would route to legal alone, and spec §4's mock (Sato/Finance seeing it, "Also requires: Legal") would be unreachable. Union routing is what the demo actually shows.
-
-Rule 3 is bounded on both sides rather than open-topped, so a $5,000 item does not also pull in `ops`. Above $2,000, finance and legal supersede the team lead.
+The `> $2,000` branch does not add `ops` — above that ceiling, finance and legal supersede the team lead. The irreversible rule reaches `legal` from every band, which is what "irreversible → legal, regardless of amount" means.
 
 Worked examples from the demo brief:
 
 | Item | Amount | Reversible | Roles | `ruleName` |
 |---|---|---|---|---|
-| Venue | $2,800 | no | `finance`, `legal` | `over_2000_requires_finance_and_legal+irreversible_requires_legal` |
-| Catering | $900 | yes | `ops` | `over_200_requires_team_lead` |
-| Drinks | $180 | yes | — | `under_200_auto_approve` |
-| Supplies | $40 | yes | — | `under_200_auto_approve` |
+| Venue | $2,800 | no | `finance`, `legal` | `irreversible_over_2000` |
+| Catering | $900 | yes | `ops` | `band_200_2000_team_lead` |
+| Drinks | $180 | yes | — | `auto_approve_under_200` |
+| Supplies | $40 | yes | — | `auto_approve_under_200` |
+
+**What changed from the version I proposed, and why the code won:**
+
+- **Input narrowed to `{ amountCents, reversible }`.** I had passed the whole line-item intent. The narrow input is a stronger invariant 2: `category` and `vendor` are model-controlled strings, and with them out of scope they cannot influence routing even in principle.
+- **Flat `PolicyDecision` instead of a discriminated union**, with `approverRoles: []` on the auto-approve branch. Callers iterate `approverRoles` unconditionally; the union forced a narrowing check at every call site to express the same thing.
+- **One composite `ruleName` per branch instead of `+`-joined names.** Enumerable, greppable, and it renders in an inbox without string-splitting.
+- **`RangeError` on malformed amounts.** I had left this unspecified.
 
 Multi-approver items write one `approvals` row per required role. The line item does not become `approved` until every row is. That matches the mock in spec §4 ("Also requires: Legal (pending)").
 
 ### Tests
 
-`resolvePolicy` gets a table-driven test. No mocks — it is a pure function of its input. Cases:
+**Already written and passing** — `src/lib/policy.test.ts`, 13 tests, 4 suites, `node --test`. No mocks; it is a pure function of its input. Covered: every threshold from both sides (19_999 / 20_000 / 200_000 / 200_001), irreversible in each band, `member` never appearing in any output across the full amount matrix, the returned key set being exactly `{requiresApproval, approverRoles, ruleName}` (a structural guard against anyone adding `approverId` later), referential purity, and the three `RangeError` cases.
 
-- Every threshold from both sides: 19_999 / 20_000 / 200_000 / 200_001.
-- An irreversible item **under $200** still routes to legal, and does *not* pick up `ops`.
-- An irreversible item **over $2,000** returns `finance` + `legal` with **both** rule names in `ruleName` — the regression test for the first-match bug above.
-- Roles are deduplicated: rules 1 and 2 both add `legal`, and the venue case must yield two roles, not three.
-- A `$2,000` item exactly routes to `ops` and not to finance — the spec band is `$200 – $2,000` inclusive.
+No further policy tests are needed. Later tasks consume `resolvePolicy`; they do not re-test it.
 
 ## 7. The gate
 
@@ -170,7 +184,10 @@ const agent = new ToolLoopAgent({
   model: signetModel(),
   tools: { spend: spendTool },
   toolApproval: {
-    spend: (input) => (resolvePolicy(input).requiresApproval ? 'user-approval' : undefined),
+    // Destructured explicitly. resolvePolicy's input is deliberately narrow —
+    // passing the whole tool input would let a future field leak into routing.
+    spend: ({ amountCents, reversible }) =>
+      resolvePolicy({ amountCents, reversible }).requiresApproval ? 'user-approval' : undefined,
   },
   stopWhen: isStepCount(30),
 });
@@ -192,7 +209,10 @@ for (const part of result.content) {
   const lineItem = await db.findLineItem(input.lineItemId, eventId);
   if (!lineItem) { await logActivity({ kind: 'rejected_unknown_line_item', ... }); continue; }
 
-  const decision = resolvePolicy(input);              // re-resolved, pure
+  const decision = resolvePolicy({                    // re-resolved, pure
+    amountCents: input.amountCents,
+    reversible: input.reversible,
+  });
   if (!decision.requiresApproval) { /* unreachable; log and skip */ }
 
   for (const role of decision.approverRoles) {
