@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test \"src/**/*.test.ts\"",
+    "test": "node --env-file-if-exists=.env.local --test \"src/**/*.test.ts\"",
     "db:push": "drizzle-kit push",
     "db:seed": "node --env-file=.env.local src/db/seed.mts"
   },
