@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "project": {
+    "initializedAt": "2026-07-31T00:25:08.656Z",
+    "merchantDisplayName": "Signet",
+    "merchantId": "acct_1Tz0d6Q60V7PRxZU",
+    "projectId": "project_61V8SDUOPLdRZBnws16V8OaS75SQm5zEB5glCiPNQ9dQ",
+    "projectName": "signet"
+  },
+  "providers": {
+    "auth0": {
+      "accountRequestId": "fprvcnn_61V8OchhxzwDeaSGH16V8OaS75SQm5zEB5glCiPNQCFM",
+      "configuration": {},
+      "linkedAt": "2026-07-30T20:34:55.112Z",
+      "providerId": "prvdr_61UVctyxfLOj4FpVw5Bmi",
+      "providerName": "Auth0",
+      "redirectUrl": null,
+      "requestedAt": "2026-07-30T20:34:55.112Z",
+      "status": "complete"
+    }
+  },
+  "resources": {
+    "auth0-plan": {
+      "configuration": {},
+      "createdAt": "2026-07-31T00:31:50.497Z",
+      "lastRevealedAt": null,
+      "lastStatus": "complete",
+      "name": "auth0-plan",
+      "providerId": "prvdr_61UVctyxfLOj4FpVw5Bmi",
+      "providerName": "Auth0",
+      "resourceId": "fres_61V8SJvKtIxniW5f216V8OaS75SQm5zEB5glCiPNQ4tU",
+      "serviceId": "free"
+    }
+  }
+}
