@@ -37,7 +37,14 @@ export function BriefForm() {
   const router = useRouter();
   const [title, setTitle] = useState(DEFAULT_TITLE);
   const [brief, setBrief] = useState(DEFAULT_BRIEF);
-  const [budget, setBudget] = useState('5000');
+  /*
+   * $10,000, not $5,000. At $5,000 the planner kept pricing the venue at or a
+   * little under $2,000 — landing on the top band's boundary, which is a `>`
+   * comparison and so falls to the band below it. The headline line item then
+   * came in under the rule the demo is built to show. Doubling the budget gives
+   * it room to clear the ceiling on its own, without moving the policy bands.
+   */
+  const [budget, setBudget] = useState('10000');
   const [headcount, setHeadcount] = useState('60');
   const [state, setState] = useState<'idle' | 'planning'>('idle');
   const [error, setError] = useState<string | null>(null);
