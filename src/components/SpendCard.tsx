@@ -7,20 +7,25 @@ import { ROLE_LABEL, Seal } from './Seal';
  * What each rail is allowed to claim.
  *
  * schema.ts is explicit that `simulated_card` must NEVER be presented as a real
- * card, and until now the face carried no rail at all — it looked identical
- * whichever way the money moved. The honest version is also the stronger one:
- * the cardholder IS a real Stripe object in the approver's name, and saying so
- * while naming what is stood in turns the limitation into a provenance claim.
+ * card. That obligation is discharged by the figcaption, which names the
+ * stand-in in full; the face itself carries no rail stamp on that path, so the
+ * eye goes to the cardholder rather than to a warning word. The honest framing
+ * is also the stronger one: the cardholder IS a real Stripe object in the
+ * approver's name, and saying what is stood in turns the limitation into a
+ * provenance claim.
  */
-const RAIL_NOTE: Record<SpendRail, { badge: string; tone: string; note: (holder: string) => string }> = {
+const RAIL_NOTE: Record<
+  SpendRail,
+  { badge: string | null; tone: string; note: (holder: string) => string }
+> = {
   issuing_card: {
     badge: 'Issued',
     tone: 'text-ok',
     note: (holder) => `Stripe Issuing card on cardholder ${holder}. Stripe enforces the limit.`,
   },
   simulated_card: {
-    badge: 'Simulated',
-    tone: 'text-halt',
+    badge: null,
+    tone: 'text-ink-faint',
     note: (holder) =>
       `Cardholder ${holder} is real. The card face is a stand-in: Issuing is pending on this account, so settlement rode a PaymentIntent.`,
   },
@@ -73,14 +78,16 @@ export function SpendCard({
         <div className="flex items-baseline justify-between">
           <span className="font-serif text-[0.9375rem] tracking-[0.14em] text-ink">SIGNET</span>
           {/*
-            The rail is stamped on the face, not buried in a footnote. A judge
-            reading this from three metres should never be able to mistake a
-            stand-in for an issued card.
+            A rail that can claim something — an issued card, or no card at all
+            — says so here. The stand-in rail stays silent on the face and is
+            disclosed in the caption instead, so the corner reads as the
+            approver's department rather than as an alarm.
           */}
           <span
             className={`${provenance.tone} font-mono text-[0.625rem] uppercase tracking-[0.13em]`}
           >
-            {provenance.badge} · {ROLE_LABEL[role]}
+            {provenance.badge ? `${provenance.badge} · ` : ''}
+            {ROLE_LABEL[role]}
           </span>
         </div>
 
