@@ -274,6 +274,7 @@ describe('persistApprovalRequests', () => {
 
   test('routes on the ROW cost, not the model-declared cost — Critical 1 regression guard', async () => {
     const capturedRows: ApprovalRow[] = [];
+    const logged: { kind: string; harnessInjected?: Record<string, unknown> }[] = [];
 
     const result = await persistApprovalRequests(
       {
@@ -285,34 +286,37 @@ describe('persistApprovalRequests', () => {
       },
       {
         // ...but the verified row is the real $2,800 irreversible venue
-        // contract. If this ever routes on `args.input` again, the captured
-        // roles below become `['ops']` (the team-lead band) instead of
-        // `['finance', 'legal']`.
+        // contract. Routing on `args.input` would land in
+        // `auto_approve_under_200`, so the gate would skip and write nothing.
         lineItemLookup: async () => ({ id: lineItemId, amountCents: 280000, reversible: false }),
-        approverLookup: async (_orgId, role) => {
-          if (role === 'finance') return 'finance-uuid';
-          if (role === 'legal') return 'legal-uuid';
-          return null;
-        },
+        approverLookup: async (_orgId, role) => (role === 'finance' ? 'finance-uuid' : null),
         writeApprovalRows: async (rows) => {
           capturedRows.push(...rows);
           return rows.length;
         },
         markAwaitingApproval: async () => {},
-        log: async () => {},
+        log: async (entry) => {
+          logged.push(entry as (typeof logged)[number]);
+        },
       },
     );
 
     assert.deepEqual(
       capturedRows.map((r) => r.requiredRole),
-      ['finance', 'legal'],
+      ['finance'],
     );
     assert.deepEqual(
       capturedRows.map((r) => r.requiredApproverId),
-      ['finance-uuid', 'legal-uuid'],
+      ['finance-uuid'],
     );
-    assert.equal(result.created, 2);
+    assert.equal(result.created, 1);
     assert.deepEqual(result.skipped, []);
+
+    // The load-bearing assertion since the demo policy flattened every gated
+    // band to `finance`: the role alone no longer distinguishes which rule
+    // fired, so pin the rule name. `irreversible_over_2000` is reachable only
+    // from the $2,800 row — the model's $100 would have auto-approved.
+    assert.equal(logged.at(-1)?.harnessInjected?.ruleName, 'irreversible_over_2000');
   });
 
   test('a re-run after settlement does not regress a charged line item — Fix 1 regression guard', async () => {
@@ -352,13 +356,14 @@ describe('persistApprovalRequests', () => {
       input: { ...base, amountCents: 100, reversible: true }, // ignored — the row wins
     };
 
-    // First run: finance and legal rows are created, the item moves to
-    // awaiting_approval.
+    // First run: the finance row is created, the item moves to
+    // awaiting_approval. One row, not two — the demo policy names a single
+    // role per band. See the header of `policy.ts`.
     const first = await persistApprovalRequests(args, deps);
-    assert.equal(first.created, 2);
+    assert.equal(first.created, 1);
     assert.equal(status, 'awaiting_approval');
 
-    // Finance and legal approve; the harness charges the item — external to
+    // Finance approves; the harness charges the item — external to
     // persistApprovalRequests, simulating `recordDecision`.
     status = 'charged';
 

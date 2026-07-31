@@ -115,8 +115,13 @@ export async function recordDecision(opts: {
     return { ok: true, state: 'declined' };
   }
 
-  // Every required approver must have signed. The venue line draws finance AND
-  // legal; one signature is not authority to spend.
+  // Every required approver must have signed. One signature is not authority to
+  // spend when the policy named more than one role.
+  //
+  // NOT dead code, though it never fires today: the demo configuration of
+  // `resolvePolicy` returns a single role for every band, so each line item has
+  // exactly one approval row and `stillPending` is always empty here. Restore a
+  // co-signing rule and this gate starts holding the charge again with no edit.
   const siblings = await db
     .select({
       status: approvals.status,

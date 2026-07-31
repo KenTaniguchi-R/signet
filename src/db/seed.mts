@@ -74,8 +74,13 @@ const PEOPLE: { role: Role; displayName: string; email: string; subEnv: string }
  * indistinguishable from ones the agent would have produced.
  *
  * Shaped to the spec's definition of done: 12 items at or under $5,000, of
- * which exactly 3 halt, producing 4 approval rows (venue draws finance AND
- * legal; catering and prizes draw the team lead).
+ * which exactly 3 halt — venue, catering and prizes — producing 3 approval
+ * rows, one per halted item.
+ *
+ * All three route to finance. That is the demo configuration in `policy.ts`,
+ * not a property of this plan: the presenter runs from a single finance
+ * session, so a line routed to ops or legal would be unclearable on stage.
+ * Devin and Amara are still seeded, and their inboxes are empty by design.
  */
 const PLAN: { category: string; vendor: string; amountCents: number; reversible: boolean }[] = [
   { category: 'venue',    vendor: 'Okta Facilities',      amountCents: 280_000, reversible: false },
