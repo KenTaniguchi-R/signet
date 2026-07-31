@@ -1,5 +1,6 @@
 import type { LineItemStatus, Role, SpendRail } from '@/db';
 import { formatCategory, formatCents } from '@/lib/format';
+import { isAwaitingHuman, planRowState } from '@/lib/plan-state';
 import type { PolicyDecision } from '@/lib/policy';
 
 import { PolicyTrace, type TraceApprover } from './PolicyTrace';
@@ -51,11 +52,12 @@ export function PlanTable({
   title: string;
   budgetCents: number;
 }) {
-  // `requiresApproval` is re-derived from the pure policy function, so it stays
-  // true forever — including after a human has signed and the money has moved.
-  // Awaiting means "the rule fired AND nobody has settled it yet", or the
-  // header keeps counting settled rows as blocked.
-  const isAwaiting = (row: PlanRow) => row.decision.requiresApproval && row.status !== 'charged';
+  // Awaiting means "the rule fired AND nobody has answered it yet". Both halves
+  // are needed: `requiresApproval` is re-derived from the pure policy function
+  // and so stays true forever, including after the money has moved. See
+  // `planRowState` for why `status` is the half that carries the evidence.
+  const isAwaiting = (row: PlanRow) =>
+    isAwaitingHuman({ status: row.status, requiresApproval: row.decision.requiresApproval });
   const halted = rows.filter(isAwaiting);
   const settled = rows.filter((row) => !isAwaiting(row));
   const ordered = [...halted, ...settled];
@@ -107,10 +109,13 @@ export function PlanTable({
 }
 
 function PlanRowGroup({ row, index }: { row: PlanRow; index: number }) {
-  const isCharged = row.status === 'charged';
-  // A charged row keeps its policy trace — the rule that required a human is
+  // A settled row keeps its policy trace — the rule that required a human is
   // still the interesting fact about it — but it stops reading as blocked.
-  const isHalted = row.decision.requiresApproval && !isCharged;
+  const state = planRowState({
+    status: row.status,
+    requiresApproval: row.decision.requiresApproval,
+  });
+  const isHalted = state.pill === 'roles';
   const cell = `border-b border-rule-soft px-3 py-2.5 align-baseline ${
     isHalted ? 'bg-halt-tint' : ''
   }`;
@@ -140,12 +145,12 @@ function PlanRowGroup({ row, index }: { row: PlanRow; index: number }) {
           {row.decision.ruleName}
         </td>
         <td className={cell}>
-          {isHalted ? (
-            <StatusPill tone="halt">
+          {state.pill === 'roles' ? (
+            <StatusPill tone={state.tone}>
               {row.decision.approverRoles.map((role) => ROLE_LABEL[role]).join(' + ')}
             </StatusPill>
           ) : (
-            <StatusPill tone="ok">{isCharged ? 'Charged' : 'Settled'}</StatusPill>
+            <StatusPill tone={state.tone}>{state.label}</StatusPill>
           )}
         </td>
       </tr>
